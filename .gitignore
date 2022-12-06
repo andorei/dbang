@@ -1,0 +1,10 @@
+cfg/.*
+in/*
+!in/README.md
+!in/test.csv
+log/*
+!log/README.md
+out/*
+!out/README.md
+!out/test.html
+.dbang.db
