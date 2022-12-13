@@ -149,7 +149,7 @@ def process(run, spec_name, spec):
             rowcount += len(rows)
             # initialize
             if file is None:
-                out_file = os.path.join(out_path, f"{CFG_NAME}_{out_base}.out")
+                out_file = os.path.join(out_path, f"{out_base}.out")
                 if out_format == "html":
                     file = open(out_file, "w", encoding=spec.get("encoding", cfg.HTML_ENCODING))
                     file.write(HTML_FIRST.format(run=run, title=spec.get('title', out_base)))
