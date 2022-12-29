@@ -7,7 +7,7 @@ import logging
 from datetime import date, datetime
 
 
-DEBUGGING = False
+DEBUGGING = True
 LOGSTDOUT = False
 
 BASENAME = os.path.basename(sys.argv[0])
@@ -69,6 +69,9 @@ elif SOURCE["database"] == "postgres":
     import psycopg2
     from psycopg2 import extras
     SOURCE["lib"] = psycopg2
+elif SOURCE["database"] == "mysql":
+    import mysql.connector
+    SOURCE["lib"] = mysql.connector
 elif SOURCE["database"] == "sqlite":
     import sqlite3
     SOURCE["lib"] = sqlite3
@@ -90,8 +93,12 @@ logger = logging.getLogger(BASENAME)
 
 def connection(src):
     if not sources[src].get('con'):
-        sources[src]['con'] = \
-            sources[src]['lib'].connect(sources[src]['con_string'], **sources[src].get('con_qwargs', dict()))
+        if sources[src].get('con_string'):
+            sources[src]['con'] = \
+                sources[src]['lib'].connect(sources[src]['con_string'], **sources[src].get('con_kwargs', dict()))
+        else:
+            sources[src]['con'] = \
+                sources[src]['lib'].connect(**sources[src]['con_kwargs'])
         if sources[src].get('init'):
             if isinstance(sources[src]['init'], str):
                 sources[src]['init'] = [sources[src]['init']]
@@ -145,6 +152,36 @@ def process(spec_name, spec, csv_file):
                             """,
                             (USER_ID, filename, spec_name)
                         )
+                        iload = cur.fetchone()[0]
+                        con.commit()
+                        insert_line =  \
+                            """
+                            insert into ida_lines (
+                                iload,
+                                iline,
+                            """ + ','.join(f'c{i+1}' for i in range(len(row))) + """
+                            ) values (
+                                %s,
+                                %s,
+                            """ + ','.join('%s' for i in range(len(row))) + """
+                            )
+                            """
+                    elif SOURCE['database'] == 'mysql':
+                        cur.execute(
+                            """
+                            insert into ida (
+                                iuser,
+                                ifile,
+                                entity
+                            ) values (
+                                %s,
+                                %s,
+                                %s
+                            )
+                            """,
+                            (USER_ID, filename, spec_name)
+                        )
+                        cur.execute("select last_insert_id()")
                         iload = cur.fetchone()[0]
                         con.commit()
                         insert_line =  \
@@ -225,6 +262,8 @@ def process(spec_name, spec, csv_file):
                 if len(data) % batch_size == 0:
                     if SOURCE['database'] == 'postgres':
                         extras.execute_batch(cur, insert_line, data, page_size=100)
+                    elif SOURCE['database'] == 'mysql':
+                        cur.executemany(insert_line, data)
                     elif SOURCE['database'] == 'oracle':
                         cur.executemany(insert_line, data)
                     elif SOURCE['database'] == 'sqlite':
@@ -233,6 +272,8 @@ def process(spec_name, spec, csv_file):
             if data:
                 if SOURCE['database'] == 'postgres':
                     extras.execute_batch(cur, insert_line, data, page_size=100)
+                elif SOURCE['database'] == 'mysql':
+                    cur.executemany(insert_line, data)
                 elif SOURCE['database'] == 'oracle':
                     cur.executemany(insert_line, data)
                 elif SOURCE['database'] == 'sqlite':
@@ -252,6 +293,8 @@ def process(spec_name, spec, csv_file):
 
             if SOURCE['database'] == 'postgres':
                 query = "select count(*) from ida_lines where iload = %s and istat = 2"
+            elif SOURCE['database'] == 'mysql':
+                query = "select count(*) from ida_lines where iload = %s and istat = 2"
             elif SOURCE['database'] == 'oracle':
                 query = "select count(*) from ida_lines where iload = :1 and istat = 2"
             elif  SOURCE['database'] == 'sqlite':
@@ -263,6 +306,8 @@ def process(spec_name, spec, csv_file):
             if err_count > 0:
                 # mark as failed
                 if SOURCE['database'] == 'postgres':
+                    query = "update ida set istat = 2 where iload = %s"
+                elif SOURCE['database'] == 'mysql':
                     query = "update ida set istat = 2 where iload = %s"
                 elif SOURCE['database'] == 'oracle':
                     query = "update ida set istat = 2 where iload = :1"
@@ -282,6 +327,8 @@ def process(spec_name, spec, csv_file):
 
             if SOURCE['database'] == 'postgres':
                 query = "select count(*) from ida_lines where iload = %s and istat = 2"
+            elif SOURCE['database'] == 'mysql':
+                query = "select count(*) from ida_lines where iload = %s and istat = 2"
             elif SOURCE['database'] == 'oracle':
                 query = "select count(*) from ida_lines where iload = :iload and istat = 2"
             elif  SOURCE['database'] == 'sqlite':
@@ -293,6 +340,8 @@ def process(spec_name, spec, csv_file):
             if err_count > 0:
                 # mark as failed
                 if SOURCE['database'] == 'postgres':
+                    query = "update ida set istat = 2 where iload = %s"
+                elif SOURCE['database'] == 'mysql':
                     query = "update ida set istat = 2 where iload = %s"
                 elif SOURCE['database'] == 'oracle':
                     query = "update ida set istat = 2 where iload = :iload"

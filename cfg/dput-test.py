@@ -7,13 +7,13 @@ import sys
 #     dput.py dput-test countries_sqlite specs/countries.csv
 #
 # To initialize and sanity-test uploading into Postgres or Oracle databases 
-# adjust database connection strings below as necessary and run
+# adjust database connection strings as necessary in the specs below and run
 #
-#     dput.py dput-test test_csv_postgres test.csv
+#     dput.py dput-test countries_postgres specs/countries.csv
 #
 # or
 #
-#     dput.py dput-test test_csv_oracle test.csv
+#     dput.py dput-test countries_oracle specs/countries.csv
 #
 
 # MANDATORY constants used by dput.py
@@ -41,6 +41,11 @@ sources = {
         "database": "oracle",
         "con_string": "username/password@host:1521/ORA",
         "con_kwargs": {"encoding": "UTF-8"}
+    },
+    "mysql-source": {
+        "database": "mysql",
+        "con_string": "",
+        "con_kwargs": {'host': 'host', 'database': 'database', 'user': 'username', 'password': 'password'}
     }
 }
 
@@ -150,7 +155,37 @@ specs = {
             # just teardown
             "delete from ida where iload = :1"
         ]
-    }
+    },
+    "test_csv_mysql": {
+        "source": "mysql-source",
+        "validate_statements": [
+            """
+            update ida_lines set
+                istat = 2,
+                ierrm = trim(ierrm || ' Empty field.')
+            where iload = %s
+                and (c1 is null or c2 is null or c3 is null or c4 is null)
+            """,
+            """
+            update ida_lines set
+                istat = 2,
+                ierrm = trim(ierrm || ' Not ALPHA2 code.')
+            where iload = %s
+                and length(c2) != 2
+            """,
+            """
+            update ida_lines set
+                istat = 2,
+                ierrm = trim(ierrm || ' Not ALPHA3 code.')
+            where iload = %s
+                and length(c3) != 3
+            """,
+        ],
+        "process_statements": [
+            # just teardown
+            "delete from ida where iload = %s"
+        ]
+    },
 }
 
 
@@ -298,5 +333,50 @@ begin
         execute immediate 'create sequence ida_seq';
     end if;
 end;
+    """
+]
+
+sources["mysql-source"]["init"] = [
+    """
+create table if not exists ida (
+    iload int not null auto_increment,
+    idate timestamp not null default current_timestamp,
+    istat smallint not null default 0,
+    imess varchar(4000),
+    entity varchar(50) not null,
+    ifile varchar(256) not null,
+    iuser varchar(30),
+    primary key (iload)
+)
+    """,
+    """
+create table if not exists ida_lines (
+    iload int not null,
+    iline int not null,
+    istat smallint not null default 0,
+    ierrm varchar(4000) null,
+    c1 text, c2 text, c3 text, c4 text, c5 text,
+    c6 text, c7 text, c8 text, c9 text, c10 text,
+    c11 text, c12 text, c13 text, c14 text, c15 text,
+    c16 text, c17 text, c18 text, c19 text, c20 text,
+    c21 text, c22 text, c23 text, c24 text, c25 text,
+    c26 text, c27 text, c28 text, c29 text, c30 text,
+    c31 text, c32 text, c33 text, c34 text, c35 text,
+    c36 text, c37 text, c38 text, c39 text, c40 text,
+    c41 text, c42 text, c43 text, c44 text, c45 text,
+    c46 text, c47 text, c48 text, c49 text, c50 text,
+    c51 text, c52 text, c53 text, c54 text, c55 text,
+    c56 text, c57 text, c58 text, c59 text, c60 text,
+    c61 text, c62 text, c63 text, c64 text, c65 text,
+    c66 text, c67 text, c68 text, c69 text, c70 text,
+    c71 text, c72 text, c73 text, c74 text, c75 text,
+    c76 text, c77 text, c78 text, c79 text, c80 text,
+    c81 text, c82 text, c83 text, c84 text, c85 text,
+    c86 text, c87 text, c88 text, c89 text, c90 text,
+    c91 text, c92 text, c93 text, c94 text, c95 text,
+    c96 text, c97 text, c98 text, c99 text, c100 text,
+    primary key (iload, iline),
+    foreign key (iload) references ida(iload) on delete cascade
+)
     """
 ]

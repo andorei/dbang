@@ -8,8 +8,8 @@ import decimal as dec
 from datetime import date, datetime
 
 
-DEBUGGING = False
-LOGSTDOUT = True
+DEBUGGING = True
+LOGSTDOUT = False
 
 BASENAME = os.path.basename(sys.argv[0])
 if len(sys.argv) not in (2, 3):
@@ -56,6 +56,9 @@ for source in sources.values():
     elif source["database"] == "postgres":
         import psycopg2
         source["lib"] = psycopg2
+    elif source["database"] == "mysql":
+        import mysql.connector
+        source["lib"] = mysql.connector
     elif source["database"] == "sqlite":
         import sqlite3
         source["lib"] = sqlite3
@@ -102,7 +105,12 @@ logger = logging.getLogger(BASENAME)
 
 def connection(src):
     if not sources[src].get('con'):
-        sources[src]['con'] = sources[src]['lib'].connect(sources[src]['con_string'])
+        if sources[src].get('con_string'):
+            sources[src]['con'] = \
+                sources[src]['lib'].connect(sources[src]['con_string'], **sources[src].get('con_kwargs', dict()))
+        else:
+            sources[src]['con'] = \
+                sources[src]['lib'].connect(**sources[src]['con_kwargs'])
         if sources[src].get('init'):
             if isinstance(sources[src]['init'], str):
                 sources[src]['init'] = [sources[src]['init']]

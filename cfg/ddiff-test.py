@@ -17,6 +17,11 @@ sources = {
         "database": "oracle",
         "con_string": "username/password@host:1521/ORA",
         "con_kwargs": {"encoding": "UTF-8"}
+    },
+    "mysql-source": {
+        "database": "mysql",
+        "con_string": "",
+        "con_kwargs": {'host': 'host', 'database': 'database', 'user': 'username', 'password': 'password'}
     }
 }
 
@@ -26,6 +31,8 @@ sources = {
 sources['.'] = sources['sqlite-source']
 #sources['.'] = sources['postgres-source']
 #sources['.'] = sources['oracle-source']
+# Currently you can't use MySQL as dot-source. Only MySQL 8.0.31 and higher
+# versions support EXCEPT clause which is used in queries with ddiff_ table.
 
 #
 # next two sources are those with data to test for discrepancies

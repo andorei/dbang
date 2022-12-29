@@ -13,7 +13,7 @@ import smtplib
 
 
 DEBUGGING = True
-LOGSTDOUT = True
+LOGSTDOUT = False
 
 NOW_TS = datetime.timestamp(datetime.now())
 

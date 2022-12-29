@@ -17,6 +17,11 @@ sources = {
         "database": "oracle",
         "con_string": "username/password@host:1521/ORA",
         "con_kwargs": {"encoding": "UTF-8"}
+    },
+    "mysql-source": {
+        "database": "mysql",
+        "con_string": "",
+        "con_kwargs": {'host': 'host', 'database': 'database', 'user': 'username', 'password': 'password'}
     }
 }
 
@@ -24,6 +29,7 @@ sources = {
 sources['.'] = sources['sqlite-source']
 #sources['.'] = sources['postgres-source']
 #sources['.'] = sources['oracle-source']
+#sources['.'] = sources['mysql-source']
 
 specs = {
     "No rows": {

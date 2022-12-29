@@ -10,7 +10,7 @@ from jinja2 import Template
 
 
 DEBUGGING = True
-LOGSTDOUT = True
+LOGSTDOUT = False
 
 BASENAME = os.path.basename(sys.argv[0])
 if len(sys.argv) not in (2, 3):
@@ -58,6 +58,9 @@ for source in sources.values():
     elif source["database"] == "postgres":
         import psycopg2
         source["lib"] = psycopg2
+    elif source["database"] == "mysql":
+        import mysql.connector
+        source["lib"] = mysql.connector
     elif source["database"] == "sqlite":
         import sqlite3
         # Setup the adaptor in order to save decimals as text
@@ -243,8 +246,12 @@ run_report_tpl = Template(RUN_REPORT)
 
 def connection(src):
     if not sources[src].get('con'):
-        sources[src]['con'] = \
-            sources[src]['lib'].connect(sources[src]['con_string'], **sources[src].get('con_qwargs', dict()))
+        if sources[src].get('con_string'):
+            sources[src]['con'] = \
+                sources[src]['lib'].connect(sources[src]['con_string'], **sources[src].get('con_kwargs', dict()))
+        else:
+            sources[src]['con'] = \
+                sources[src]['lib'].connect(**sources[src]['con_kwargs'])
         if sources[src]['database'] == 'oracle':
             # see https://cx-oracle.readthedocs.io/en/latest/user_guide/sql_execution.html#fetched-number-precision.
             def number_to_decimal(cursor, name, default_type, size, precision, scale):

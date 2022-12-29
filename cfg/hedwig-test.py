@@ -76,7 +76,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
 specs = {
     "file.html": {
         "mail": {
-            "to": "trofimov.aa@boobl-goom.ru",
+            "to": "me@my.self",
             "subject": "{dbang} file.html",
             "sources": [
                 {"file.html": TEST_HTML_FILE}
@@ -86,7 +86,7 @@ specs = {
     },
     "combined files": {
         "mail": {
-            "to": "trofimov.aa@boobl-goom.ru",
+            "to": "me@my.self",
             "subject": "{dbang} combined files",
             "sources": [
                 {
@@ -105,7 +105,7 @@ specs = {
     },
     "combined doc and file": {
         "mail": {
-            "to": "trofimov.aa@boobl-goom.ru",
+            "to": "me@my.self",
             "subject": "{dbang} combined doc and file",
             "greeting": "<p>Привет!</p><p/>",
             "sources": [

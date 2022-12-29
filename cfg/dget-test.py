@@ -32,6 +32,11 @@ sources = {
         "database": "oracle",
         "con_string": "username/password@host:1521/ORA",
         "con_kwargs": {"encoding": "UTF-8"}
+    },
+    "mysql-source": {
+        "database": "mysql",
+        "con_string": "",
+        "con_kwargs": {'host': 'host', 'database': 'database', 'user': 'username', 'password': 'password'}
     }
 }
 
@@ -39,6 +44,7 @@ sources = {
 sources['.'] = sources['sqlite-source']
 #sources['.'] = sources['postgres-source']
 #sources['.'] = sources['oracle-source']
+#sources['.'] = sources['mysql-source']
 
 #specs = {
 #    # output file name with extension
@@ -91,13 +97,13 @@ specs = {
     "1 row many columns.html": {
         "source": ".",
         "query": "select 'q', 'w', 'e', 'r', 't', 'y', 1, 2.0, current_date from dual",
-        #"out_dir": os.path.join(os.path.dirname(os.path.realpath(sys.argv[0])), 'log'),
+        #"directory": os.path.join(os.path.dirname(os.path.realpath(sys.argv[0])), 'log'),
         "title": "1 many columns"
     },
     "1 row many columns.csv": {
         "source": ".",
         "query": "select 'q', 'w', 'e', 'r', 't', 'y', 1, 2.0, current_date from dual",
-        #"out_dir": os.path.join(os.path.dirname(os.path.realpath(sys.argv[0])), 'log'),
+        #"directory": os.path.join(os.path.dirname(os.path.realpath(sys.argv[0])), 'log'),
     },
     "1 row with column titles.html": {
         "source": ".",
@@ -147,7 +153,7 @@ specs = {
                 from numbers
                 where n < 10
             )
-            select 'q', 'w', 'e', 'привет', n, 0.0 + n, date(current_date, n||' day') 
+            select 'q', 'w', 'e', 'привет', n, 0.0 + n, current_date 
             from numbers
             """,
         "titles": ['Q', 'W', 'E', 'Привет', 'One', 'Two', 'Dates'],
@@ -164,13 +170,13 @@ specs = {
                 from numbers
                 where n < 10
             )
-            select 'q', 'w', 'e', 'привет', n, 0.0 + n, date(current_date, n||' day') 
+            select 'q', 'w', 'e', 'привет', n, 0.0 + n, current_date 
             from numbers
             """,
         "titles": ['Q', 'W', 'E', 'Привет', 'One', 'Two', 'Dates'],
         "dec_separator": ','
     },
-    "100000 rows 10 columns.html": {
+    "1000 rows 10 columns.html": {
         "source": ".",
         "query": """
             with recursive numbers (n) as (
@@ -178,15 +184,15 @@ specs = {
                 union all
                 select n + 1
                 from numbers
-                where n < 100000
+                where n < 1000
             )
-            select 'q', 'w', 'e', 'r', 't', 'y', n, 0.0 + n, date(current_date, n||' day') 
+            select 'q', 'w', 'e', 'r', 't', 'y', n, 0.0 + n, current_date 
             from numbers
             """,
         "titles": ['Q', 'W', 'E', 'R', 'T', 'Y', 'One', 'Two', 'Dates'],
         "title": "100000 rows 10 columns"
     },
-    "100000 rows 10 columns.csv": {
+    "1000 rows 10 columns.csv": {
         "source": ".",
         "query": """
             with recursive numbers (n) as (
@@ -194,9 +200,9 @@ specs = {
                 union all
                 select n + 1
                 from numbers
-                where n < 100000
+                where n < 1000
             )
-            select 'q', 'w', 'e', 'r', 't', 'y', n, 0.0 + n, date(current_date, n||' day') 
+            select 'q', 'w', 'e', 'r', 't', 'y', n, 0.0 + n, current_date 
             from numbers
             """,
         "titles": ['Q', 'W', 'E', 'R', 'T', 'Y', 'One', 'Two', 'Dates']
