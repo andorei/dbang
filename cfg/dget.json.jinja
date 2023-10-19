@@ -1,0 +1,5 @@
+[
+{%- for row in rows %}
+{{"{"}}{% for k, v in zip(titles, row) %}"{{k}}": {{v|tojson}}{% if not loop.last %}, {% endif %}{% endfor %}{{"}"}}{% if not loop.last %},{% endif %}
+{%- endfor %}
+]

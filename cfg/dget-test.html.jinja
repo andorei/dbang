@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="content-type" content="text/html; charset=UTF-8">
+    <style type="text/css">
+        body {{"{"}}background:#FFFCC9;{{"}"}}
+        th {{"{"}}background:#BFBD97; padding: 1px 5px 1px 5px;{{"}"}}
+        td {{"{"}}background:#E6E3B5; padding: 1px 5px 1px 5px; text-align: left;{{"}"}}
+    </style>
+<title>{{title}}</title>
+</head>
+<body>
+<h2>{{title}}: first 20 rows</h2>
+<p>{{run[1]}}</p>
+<table>
+<tr>{% for t in titles %}<th>{{t}}</th>{% endfor %}</tr>
+{%- for row in rows %}
+{%- if loop.index < 21 %}
+<tr>{% for d in row %}<td{{' style="text-align:right;"' if d is number else ''}}>{{d if d is not none else ''}}</td>{% endfor %}</tr>
+{%- endif %}
+{%- if loop.index == 21 %}
+<tr><td style="text-align:center;" colspan="{{row|length}}">. . . . . . . . .</td></tr>
+<tr><td style="text-align:center;" colspan="{{row|length}}">. . . . . . . . .</td></tr>
+<tr><td style="text-align:center;" colspan="{{row|length}}">. . . . . . . . .</td></tr>
+{%- endif %}
+{%- endfor %}
+</table>
+<p>Created with template <code>dget-test.html.jinja</code></p>
+</body>
+</html>

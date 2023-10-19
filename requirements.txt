@@ -1,0 +1,5 @@
+Jinja2==3.1.2
+cx-Oracle==8.3.0
+psycopg2==2.9.3
+mysql-connector-python==8.0.31
+openpyxl==3.1.1
