@@ -432,7 +432,7 @@ def process(spec_name, spec, input_file, stat):
         #assert glob.glob(in_file), f"Input file not found: {input_file}"
         if not glob.glob(in_file):
             logger.info("%s - No files to load: %s", spec_name, input_file)
-            return
+            return return_code
 
     source = sources[spec['source']]
     filename = os.path.basename(in_file)
@@ -474,7 +474,7 @@ def process(spec_name, spec, input_file, stat):
 
         if (not args.force and not spec.get('force') and not recent_files) or not all_files:
             logger.info("%s - No files to load: %s", spec_name, input_file)
-            return
+            return return_code
 
         if args.force or spec.get('force'):
             target_files = all_files
