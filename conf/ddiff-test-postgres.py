@@ -3,31 +3,32 @@ import sys
 
 from sources import sources
 
-
 #
 # Specify PosgreSQL connection details for "postgres-source" in sources.py,
 # then run sanity test against PostgreSQL DB with command line
-#
-#     ddiff.py ddiff-test-postgres
-#
+#     ddiff.py conf/ddiff-test-postgres.py
 # and find test data discrepancies report in out/ddiff-test-postgres.html
 #
 
-
-# MANDATORY CONSTANTS used by ddiff.py
-
-# DB where intermediate data is kept and processed
-DDIFF_SOURCE = sources['postgres-source']
-
-
-# OPTIONAL CONSTANTS
-
-# Directory where discrepancies report is saved
-#OUT_DIR = os.path.join(os.path.dirname(os.path.realpath(sys.argv[0])), 'out')
-
+#
+# SETTINGS USED BY ddiff
+#
+# defaults to current working directory
+OUT_DIR = os.path.join(os.path.dirname(__file__), '..', 'out')
+# defaults to False
 DEBUGGING = True
-#LOGSTDOUT = False
+# defaults to False
+LOGGING = True
+# defaults to current working directory
+LOG_DIR = os.path.join(os.path.dirname(__file__), '..', 'log')
+# ddiff database defaults to sqlite database ~/.dbang/ddiff.db
+DDIFF_SOURCE = sources['postgres-source']
+# data sources
+SOURCES = ["ONE", "TWO"]
 
+#
+# SETTINGS USED IN specs
+#
 # Next two sources are those with data to test for discrepancies
 sources["ONE"] = sources["postgres-source"]
 sources["TWO"] = sources["postgres-source"]
@@ -39,7 +40,9 @@ sources["TWO"] = sources["postgres-source"]
 specs = {
     # just sanity testing
     "42": {
+        "tags": ['success'],
         "sources": ["ONE", "TWO"],
+        #"doc": "42 == 42"
         "pk": ["answer"],
         "queries": [
             "select 42 as answer from dual",
@@ -47,7 +50,8 @@ specs = {
        ]
     },
     "diffs": {
-        "sources": ["ONE", "TWO"],
+        "tags": ['failure'],
+        "doc": "Intentionally failed",
         "pk": ["id"],
         "queries": [
             """
@@ -62,8 +66,49 @@ specs = {
             """
        ]
     },
+    "diffs (lt)": {
+        "tags": ['success'],
+        "op": "<",
+        "doc": "Dataset 1 is subset of or equal to Dataset 2",
+        "pk": ["id"],
+        "queries": [
+            """
+            select 1 as id, current_date as today from dual
+            union all
+            select 2, date '2023-01-01' from dual
+            """,
+            """
+            select 1 as id, current_date as today from dual
+            union all
+            select 2, date '2023-01-01' from dual
+            union all
+            select 3, date '2023-01-02' from dual
+            """
+       ]
+    },
+    "diffs (gt)": {
+        "tags": ['success'],
+        "op": ">",
+        "doc": "Dataset 1 is equal to or superset of Dataset 2",
+        "pk": ["id"],
+        "queries": [
+            """
+            select 1 as id, current_date as today from dual
+            union all
+            select 2, date '2023-01-01' from dual
+            union all
+            select 3, date '2023-01-02' from dual
+            """,
+            """
+            select 1 as id, current_date as today from dual
+            union all
+            select 2, date '2023-01-01' from dual
+            """
+       ]
+    },
     "nested": {
-        "sources": ["ONE", "TWO"],
+        "tags": ['failure'],
+        "doc": "Intentionally failed",
         "pk": ["c1"],
         "queries": [
             "select 1 c1, 2 c2, 3 c3, 4 c4, 5 c5 from dual",
@@ -105,7 +150,8 @@ specs = {
         }
     },
     "current": {
-        "sources": ["ONE", "TWO"],
+        "tags": ['failure'],
+        "doc": "Intentionally failed",
         "pk": ["c1"],
         "queries": [
             """
@@ -131,35 +177,5 @@ specs = {
 }
 
 sources['postgres-source']['setup'] = sources['postgres-source'].get('setup', []) + [
-    """
-create table if not exists ddiff_(
-    cfg text,
-    spec text,
-    run bigint,
-    source text,
-    c1 text, c2 text, c3 text, c4 text, c5 text, c6 text, c7 text, c8 text, c9 text, c10 text,
-    c11 text, c12 text, c13 text, c14 text, c15 text, c16 text, c17 text, c18 text, c19 text, c20 text,
-    c21 text, c22 text, c23 text, c24 text, c25 text, c26 text, c27 text, c28 text, c29 text, c30 text,
-    c31 text, c32 text, c33 text, c34 text, c35 text, c36 text, c37 text, c38 text, c39 text, c40 text,
-    c41 text, c42 text, c43 text, c44 text, c45 text, c46 text, c47 text, c48 text, c49 text, c50 text
-)
-    """,
-    """
-create table if not exists ddiff_diffs_(
-    cfg text,
-    spec text,
-    run bigint,
-    c1 text, c2 text, c3 text, c4 text, c5 text, c6 text, c7 text, c8 text, c9 text, c10 text,
-    c11 text, c12 text, c13 text, c14 text, c15 text, c16 text, c17 text, c18 text, c19 text, c20 text,
-    c21 text, c22 text, c23 text, c24 text, c25 text, c26 text, c27 text, c28 text, c29 text, c30 text,
-    c31 text, c32 text, c33 text, c34 text, c35 text, c36 text, c37 text, c38 text, c39 text, c40 text,
-    c41 text, c42 text, c43 text, c44 text, c45 text, c46 text, c47 text, c48 text, c49 text, c50 text,
-    c51 text, c52 text, c53 text, c54 text, c55 text, c56 text, c57 text, c58 text, c59 text, c60 text,
-    c61 text, c62 text, c63 text, c64 text, c65 text, c66 text, c67 text, c68 text, c69 text, c70 text,
-    c71 text, c72 text, c73 text, c74 text, c75 text, c76 text, c77 text, c78 text, c79 text, c80 text,
-    c81 text, c82 text, c83 text, c84 text, c85 text, c86 text, c87 text, c88 text, c89 text, c90 text,
-    c91 text, c92 text, c93 text, c94 text, c95 text, c96 text, c97 text, c98 text, c99 text, c100 text
-)
-    """,
     "create table if not exists dual as select 'X' as dummy"
 ]

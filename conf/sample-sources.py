@@ -1,13 +1,12 @@
 import os
-import sys
 
 sources = {
     #
-    # Data sources used in dbang test config files
+    # Data sources used in dbang test specs
     #
     "sqlite-source": {
         "database": "sqlite",
-        "con_string": os.path.join(os.path.dirname(os.path.realpath(sys.argv[0])), f'.dbang.db')
+        "con_string": os.path.join(os.environ.get('HOMEPATH', os.environ.get('HOME')), '.dbang', 'dbang.db')
     },
     "postgres-source": {
         "database": "postgres",
@@ -16,15 +15,11 @@ sources = {
     "oracle-source": {
         "database": "oracle",
         "con_string": "username/password@host:1521/ORA",
-        "con_kwargs": {"encoding": "UTF-8"}
+        "oracledb_thick_mode": True
     },
     "mysql-source": {
         "database": "mysql",
         "con_string": "",
         "con_kwargs": {'host': 'host', 'database': 'database', 'user': 'username', 'password': 'password'}
     },
-    #
-    # User defined data sources
-    #
-    # ...
 }

@@ -1,0 +1,20 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="content-type" content="text/html; charset=UTF-8">
+    <style type="text/css">
+        th {{"{"}}background:lightblue; padding: 1px 5px 1px 5px;{{"}"}}
+        td {{"{"}}background:lightgrey; padding: 1px 5px 1px 5px; text-align: left;{{"}"}}
+        pre {{"{"}}background:lightgrey; padding: 5px 5px 5px 5px;{{"}"}}
+    </style>
+</head>
+<body>
+{%- if greeting %}{{greeting}}{% endif %}
+{%- for name, part in zip(names, parts) %}
+{%- if name %}<p style="font-weight:bold;color:grey;">{{name}}</p>{% endif %}
+{{part}}
+{%- endfor %}
+{%- if signature %}{{signature}}{% endif %}
+</body>
+</html>

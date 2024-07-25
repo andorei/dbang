@@ -1,4 +1,4 @@
-#!/usr/bin/python3
+#!/usr/bin/env python3
 
 import os
 import sys
@@ -7,56 +7,88 @@ import logging
 import decimal as dec
 from datetime import date, datetime
 from math import ceil
+import re
 
 from jinja2 import Template
 
 
-VERSION = '0.2'
+VERSION = '0.3'
 
 parser = argparse.ArgumentParser(
     description="Detect discrepancies in two databases as specified in cfg-file specs.",
     epilog="Thanks for using %(prog)s!"
 )
 
-parser.add_argument('-v', '--version', action='version', version='%(prog)s ' + VERSION)
+parser.add_argument("-v", "--version", action="version", version="%(prog)s " + VERSION)
 parser.add_argument("cfg_file", help="cfg-file name")
 parser.add_argument("spec", nargs="?", default="all", help="spec name, defaults to \"all\"")
-parser.add_argument("-1", "--one", action='store_true', help="find discrepancies and store them")
-parser.add_argument("-2", "--two", action='store_true', help="find discrepancies and intersect them with the stored")
+parser.add_argument("-1", "--one", action="store_true", help="find discrepancies and store them")
+parser.add_argument("-2", "--two", action="store_true", help="find discrepancies and intersect them with the stored")
 
 args = parser.parse_args()
 
 BASENAME = os.path.basename(sys.argv[0])
-SCRIPT_DIR = os.path.dirname(os.path.realpath(sys.argv[0]))
-CFG_DIR = os.path.join(SCRIPT_DIR, 'cfg')
-CFG_NAME = args.cfg_file.split('.')[0]
-CFG_FILE = f"{CFG_NAME}.py"
-if not os.path.isfile(os.path.join(CFG_DIR, CFG_FILE)):
+if not os.path.isfile(args.cfg_file) and not os.path.isfile(args.cfg_file + '.py'):
     sys.stderr.write(
         parser.format_usage() + \
-        f"{BASENAME}: error: cfg-file not found: {CFG_FILE}\n"
+        f"{BASENAME}: error: cfg-file not found: {args.cfg_file}\n"
     )
     sys.exit(1)
 
+#USER_DIR = os.environ.get('HOMEPATH', os.environ.get('HOME', ''))
+USER_DIR = os.path.expanduser('~')
+if not os.path.isdir(USER_DIR):
+    sys.stderr.write(
+        parser.format_usage() + \
+        f"{BASENAME}: error: user's home dir not found: {USER_DIR}\n"
+    )
+    sys.exit(1)
+TEMP_DIR = os.path.join(USER_DIR, '.dbang')
+if not os.path.isdir(TEMP_DIR):
+    os.mkdir(TEMP_DIR)
+
+CUR_DIR = os.getcwd()
+CFG_DIR = os.path.abspath(os.path.dirname(args.cfg_file) or CUR_DIR)
+CFG_MODULE = os.path.basename(args.cfg_file).rsplit('.', 1)[0]
 sys.path.append(CFG_DIR)
-cfg = __import__(CFG_NAME)
+cfg = __import__(CFG_MODULE)
 sources = cfg.sources
 specs = cfg.specs
 
 SPEC = args.spec
-if SPEC not in [*specs.keys(), 'all']:
+if SPEC not in [*specs.keys(), 'all', *(tag for val in specs.values() if val.get('tags') for tag in val['tags'])]:
     sys.stderr.write(
         parser.format_usage() + \
         f"{BASENAME}: error: spec not found in cfg-file: {SPEC}\n"
     )
     sys.exit(1)
 
-BASENAME = os.path.basename(sys.argv[0]).split('.')[0]
-LOG_FILE = os.path.join(SCRIPT_DIR, 'log', f'{date.today().isoformat()}_{BASENAME}.log')
-OUT_DIR = getattr(cfg, 'OUT_DIR', os.path.join(SCRIPT_DIR, 'out'))
+OUT_DIR = getattr(cfg, 'OUT_DIR', CUR_DIR)
+if not os.path.isdir(OUT_DIR):
+    sys.stderr.write(
+        parser.format_usage() + \
+        f"{BASENAME}: error: out dir not found: {OUT_DIR}\n"
+    )
+    sys.exit(1)
 OUT_FILE = os.path.join(OUT_DIR, '{}.html')
+
 DEBUGGING = getattr(cfg, 'DEBUGGING', False)
-LOGSTDOUT = getattr(cfg, 'LOGSTDOUT', False)
+LOGGING = getattr(cfg, 'LOGGING', DEBUGGING)
+LOG_DIR = getattr(cfg, 'LOG_DIR', CUR_DIR)
+if LOGGING and not os.path.isdir(LOG_DIR):
+    sys.stderr.write(
+        parser.format_usage() + \
+        f"{BASENAME}: error: log dir not found: {LOG_DIR}\n"
+    )
+    sys.exit(1)
+LOG_FILE = os.path.join(LOG_DIR, f"{date.today().isoformat()}_{BASENAME.rsplit('.', 1)[0]}.log")
+logging.basicConfig(
+    filename=LOG_FILE,
+    #encoding='utf-8', # encoding needs Python >=3.9
+    format="%(asctime)s:%(levelname)s:%(name)s:%(message)s",
+    level=logging.DEBUG if DEBUGGING else logging.INFO if LOGGING else logging.CRITICAL + 1
+)
+logger = logging.getLogger(BASENAME.rsplit('.', 1)[0])
 
 # keep data in ddiff_ table after test completion
 DDIFF_KEEP = False
@@ -66,6 +98,185 @@ ONE_FETCH_ROWS = 5000
 MAX_FETCH_ROWS = 1000000
 # number of mismatchs at which we go no deeper
 MAX_DISCREPANCIES = 1000
+
+DDIFF_SETUP = {
+    "mysql": [
+        """
+create table if not exists ddiff_(
+    cfg text,
+    spec text,
+    run bigint,
+    source text,
+    c1 text, c2 text, c3 text, c4 text, c5 text, c6 text, c7 text, c8 text, c9 text, c10 text,
+    c11 text, c12 text, c13 text, c14 text, c15 text, c16 text, c17 text, c18 text, c19 text, c20 text,
+    c21 text, c22 text, c23 text, c24 text, c25 text, c26 text, c27 text, c28 text, c29 text, c30 text,
+    c31 text, c32 text, c33 text, c34 text, c35 text, c36 text, c37 text, c38 text, c39 text, c40 text,
+    c41 text, c42 text, c43 text, c44 text, c45 text, c46 text, c47 text, c48 text, c49 text, c50 text
+)
+        """,
+        """
+create table if not exists ddiff_diffs_(
+    cfg text,
+    spec text,
+    run bigint,
+    c1 text, c2 text, c3 text, c4 text, c5 text, c6 text, c7 text, c8 text, c9 text, c10 text,
+    c11 text, c12 text, c13 text, c14 text, c15 text, c16 text, c17 text, c18 text, c19 text, c20 text,
+    c21 text, c22 text, c23 text, c24 text, c25 text, c26 text, c27 text, c28 text, c29 text, c30 text,
+    c31 text, c32 text, c33 text, c34 text, c35 text, c36 text, c37 text, c38 text, c39 text, c40 text,
+    c41 text, c42 text, c43 text, c44 text, c45 text, c46 text, c47 text, c48 text, c49 text, c50 text,
+    c51 text, c52 text, c53 text, c54 text, c55 text, c56 text, c57 text, c58 text, c59 text, c60 text,
+    c61 text, c62 text, c63 text, c64 text, c65 text, c66 text, c67 text, c68 text, c69 text, c70 text,
+    c71 text, c72 text, c73 text, c74 text, c75 text, c76 text, c77 text, c78 text, c79 text, c80 text,
+    c81 text, c82 text, c83 text, c84 text, c85 text, c86 text, c87 text, c88 text, c89 text, c90 text,
+    c91 text, c92 text, c93 text, c94 text, c95 text, c96 text, c97 text, c98 text, c99 text, c100 text
+)
+        """
+    ],
+    "oracle": [
+        """
+declare
+    table_exists pls_integer;
+begin
+    select count(*)
+    into table_exists
+    from all_tables
+    where table_name in ('DDIFF_')
+    ;
+    if 0 = table_exists then
+        execute immediate '
+            create table ddiff_(
+                cfg varchar2(4000),
+                spec varchar2(4000),
+                run number,
+                source varchar2(4000),
+                c1 varchar2(4000), c2 varchar2(4000), c3 varchar2(4000), c4 varchar2(4000), c5 varchar2(4000),
+                c6 varchar2(4000), c7 varchar2(4000), c8 varchar2(4000), c9 varchar2(4000), c10 varchar2(4000),
+                c11 varchar2(4000), c12 varchar2(4000), c13 varchar2(4000), c14 varchar2(4000), c15 varchar2(4000),
+                c16 varchar2(4000), c17 varchar2(4000), c18 varchar2(4000), c19 varchar2(4000), c20 varchar2(4000),
+                c21 varchar2(4000), c22 varchar2(4000), c23 varchar2(4000), c24 varchar2(4000), c25 varchar2(4000),
+                c26 varchar2(4000), c27 varchar2(4000), c28 varchar2(4000), c29 varchar2(4000), c30 varchar2(4000),
+                c31 varchar2(4000), c32 varchar2(4000), c33 varchar2(4000), c34 varchar2(4000), c35 varchar2(4000),
+                c36 varchar2(4000), c37 varchar2(4000), c38 varchar2(4000), c39 varchar2(4000), c40 varchar2(4000),
+                c41 varchar2(4000), c42 varchar2(4000), c43 varchar2(4000), c44 varchar2(4000), c45 varchar2(4000),
+                c46 varchar2(4000), c47 varchar2(4000), c48 varchar2(4000), c49 varchar2(4000), c50 varchar2(4000)
+            )';
+    end if;
+end;
+        """,
+        """
+declare
+    table_exists pls_integer;
+begin
+    select count(*)
+    into table_exists
+    from all_tables
+    where table_name in ('DDIFF_DIFFS_')
+    ;
+    if 0 = table_exists then
+        execute immediate '
+            create table ddiff_diffs_(
+                cfg varchar2(4000),
+                spec varchar2(4000),
+                run number,
+                c1 varchar2(4000), c2 varchar2(4000), c3 varchar2(4000), c4 varchar2(4000), c5 varchar2(4000),
+                c6 varchar2(4000), c7 varchar2(4000), c8 varchar2(4000), c9 varchar2(4000), c10 varchar2(4000),
+                c11 varchar2(4000), c12 varchar2(4000), c13 varchar2(4000), c14 varchar2(4000), c15 varchar2(4000),
+                c16 varchar2(4000), c17 varchar2(4000), c18 varchar2(4000), c19 varchar2(4000), c20 varchar2(4000),
+                c21 varchar2(4000), c22 varchar2(4000), c23 varchar2(4000), c24 varchar2(4000), c25 varchar2(4000),
+                c26 varchar2(4000), c27 varchar2(4000), c28 varchar2(4000), c29 varchar2(4000), c30 varchar2(4000),
+                c31 varchar2(4000), c32 varchar2(4000), c33 varchar2(4000), c34 varchar2(4000), c35 varchar2(4000),
+                c36 varchar2(4000), c37 varchar2(4000), c38 varchar2(4000), c39 varchar2(4000), c40 varchar2(4000),
+                c41 varchar2(4000), c42 varchar2(4000), c43 varchar2(4000), c44 varchar2(4000), c45 varchar2(4000),
+                c46 varchar2(4000), c47 varchar2(4000), c48 varchar2(4000), c49 varchar2(4000), c50 varchar2(4000),
+                c51 varchar2(4000), c52 varchar2(4000), c53 varchar2(4000), c54 varchar2(4000), c55 varchar2(4000),
+                c56 varchar2(4000), c57 varchar2(4000), c58 varchar2(4000), c59 varchar2(4000), c60 varchar2(4000),
+                c61 varchar2(4000), c62 varchar2(4000), c63 varchar2(4000), c64 varchar2(4000), c65 varchar2(4000),
+                c66 varchar2(4000), c67 varchar2(4000), c68 varchar2(4000), c69 varchar2(4000), c70 varchar2(4000),
+                c71 varchar2(4000), c72 varchar2(4000), c73 varchar2(4000), c74 varchar2(4000), c75 varchar2(4000),
+                c76 varchar2(4000), c77 varchar2(4000), c78 varchar2(4000), c79 varchar2(4000), c80 varchar2(4000),
+                c81 varchar2(4000), c82 varchar2(4000), c83 varchar2(4000), c84 varchar2(4000), c85 varchar2(4000),
+                c86 varchar2(4000), c87 varchar2(4000), c88 varchar2(4000), c89 varchar2(4000), c90 varchar2(4000),
+                c91 varchar2(4000), c92 varchar2(4000), c93 varchar2(4000), c94 varchar2(4000), c95 varchar2(4000),
+                c96 varchar2(4000), c97 varchar2(4000), c98 varchar2(4000), c99 varchar2(4000), c100 varchar2(4000)
+            )';
+    end if;
+end;
+        """
+    ],
+    "postgres": [
+        """
+create table if not exists ddiff_(
+    cfg text,
+    spec text,
+    run bigint,
+    source text,
+    c1 text, c2 text, c3 text, c4 text, c5 text, c6 text, c7 text, c8 text, c9 text, c10 text,
+    c11 text, c12 text, c13 text, c14 text, c15 text, c16 text, c17 text, c18 text, c19 text, c20 text,
+    c21 text, c22 text, c23 text, c24 text, c25 text, c26 text, c27 text, c28 text, c29 text, c30 text,
+    c31 text, c32 text, c33 text, c34 text, c35 text, c36 text, c37 text, c38 text, c39 text, c40 text,
+    c41 text, c42 text, c43 text, c44 text, c45 text, c46 text, c47 text, c48 text, c49 text, c50 text
+)
+        """,
+        """
+create table if not exists ddiff_diffs_(
+    cfg text,
+    spec text,
+    run bigint,
+    c1 text, c2 text, c3 text, c4 text, c5 text, c6 text, c7 text, c8 text, c9 text, c10 text,
+    c11 text, c12 text, c13 text, c14 text, c15 text, c16 text, c17 text, c18 text, c19 text, c20 text,
+    c21 text, c22 text, c23 text, c24 text, c25 text, c26 text, c27 text, c28 text, c29 text, c30 text,
+    c31 text, c32 text, c33 text, c34 text, c35 text, c36 text, c37 text, c38 text, c39 text, c40 text,
+    c41 text, c42 text, c43 text, c44 text, c45 text, c46 text, c47 text, c48 text, c49 text, c50 text,
+    c51 text, c52 text, c53 text, c54 text, c55 text, c56 text, c57 text, c58 text, c59 text, c60 text,
+    c61 text, c62 text, c63 text, c64 text, c65 text, c66 text, c67 text, c68 text, c69 text, c70 text,
+    c71 text, c72 text, c73 text, c74 text, c75 text, c76 text, c77 text, c78 text, c79 text, c80 text,
+    c81 text, c82 text, c83 text, c84 text, c85 text, c86 text, c87 text, c88 text, c89 text, c90 text,
+    c91 text, c92 text, c93 text, c94 text, c95 text, c96 text, c97 text, c98 text, c99 text, c100 text
+)
+        """,
+    ],
+    "sqlite": [
+        """
+create table if not exists ddiff_(
+    cfg text,
+    spec text,
+    run bigint,
+    source text,
+    c1 text, c2 text, c3 text, c4 text, c5 text, c6 text, c7 text, c8 text, c9 text, c10 text,
+    c11 text, c12 text, c13 text, c14 text, c15 text, c16 text, c17 text, c18 text, c19 text, c20 text,
+    c21 text, c22 text, c23 text, c24 text, c25 text, c26 text, c27 text, c28 text, c29 text, c30 text,
+    c31 text, c32 text, c33 text, c34 text, c35 text, c36 text, c37 text, c38 text, c39 text, c40 text,
+    c41 text, c42 text, c43 text, c44 text, c45 text, c46 text, c47 text, c48 text, c49 text, c50 text
+)
+        """,
+        """
+create table if not exists ddiff_diffs_(
+    cfg text,
+    spec text,
+    run bigint,
+    c1 text, c2 text, c3 text, c4 text, c5 text, c6 text, c7 text, c8 text, c9 text, c10 text,
+    c11 text, c12 text, c13 text, c14 text, c15 text, c16 text, c17 text, c18 text, c19 text, c20 text,
+    c21 text, c22 text, c23 text, c24 text, c25 text, c26 text, c27 text, c28 text, c29 text, c30 text,
+    c31 text, c32 text, c33 text, c34 text, c35 text, c36 text, c37 text, c38 text, c39 text, c40 text,
+    c41 text, c42 text, c43 text, c44 text, c45 text, c46 text, c47 text, c48 text, c49 text, c50 text,
+    c51 text, c52 text, c53 text, c54 text, c55 text, c56 text, c57 text, c58 text, c59 text, c60 text,
+    c61 text, c62 text, c63 text, c64 text, c65 text, c66 text, c67 text, c68 text, c69 text, c70 text,
+    c71 text, c72 text, c73 text, c74 text, c75 text, c76 text, c77 text, c78 text, c79 text, c80 text,
+    c81 text, c82 text, c83 text, c84 text, c85 text, c86 text, c87 text, c88 text, c89 text, c90 text,
+    c91 text, c92 text, c93 text, c94 text, c95 text, c96 text, c97 text, c98 text, c99 text, c100 text
+)
+        """
+    ],
+}
+
+# default sqlite database for ddiff tables
+SQLITE_SOURCE = {
+    "database": "sqlite",
+    "con_string": os.path.join(os.environ.get('HOMEPATH', os.environ.get('HOME')), '.dbang', 'ddiff.db')
+}
+# database for ddiff tables
+DDIFF_SOURCE = getattr(cfg, 'DDIFF_SOURCE', SQLITE_SOURCE)
+DDIFF_SOURCE['setup'] = DDIFF_SETUP[DDIFF_SOURCE['database']] + DDIFF_SOURCE.get('setup', [])
 
 INSERT_RESULTS = """
 insert into ddiff_ (
@@ -175,13 +386,16 @@ TEST_REPORT="""
         th {background:lightblue; padding: 1px 5px 1px 5px;}
         td {background:lightgrey; padding: 1px 5px 1px 5px; text-align: left;}
     </style>
-<title>Data Discrepancies Report ({{cfg}}): {{test}}</title>
+<title>Data Discrepancies Report ({{cfg}}): {{test|escape}}</title>
 </head>
 <body>
 <h2><a href="{{cfg}}.html">Data Discrepancies Report ({{cfg}})</a>: {{test}}</h2>
 {%- if rows %}
 {%- for row in rows %}
 {%- if loop.first %}
+{%- if doc %}
+<p>{{doc}}</p>
+{%- endif %}
 <p>
 {{run[1]}}. DB1 = {{sources[0]}}, DB2 = {{sources[1]}}. <span style="color:red;">Found {{rows|length}} discrepancies. </span>
 {% for warn in warnings %}{{warn}} {% endfor %}
@@ -198,7 +412,7 @@ TEST_REPORT="""
         <td style="color:red;">{{col[0] if col[0] is not none else '[NULL]'}}</td><td style="color:red;">{{col[1] if col[1] is not none else '[NULL]'}}</td>
         {%- endif %}
     {%- else %}
-        <td>{{col if col is not none else '[NULL]'}}</td>
+        <td>{{(col if col is not none else '[NULL]')|escape}}</td>
     {%- endif %}
 {%- endfor %}
 </tr>
@@ -236,14 +450,15 @@ RUN_REPORT="""
 {% if not_run > 0 %}{{not_run}} test{% if not_run > 1 %}s{% endif%} failed to run.{% endif %}
 </p>
 <table style="min-width:35%;">
-<tr><th>Test</th><th>DB1</th><th>DB2</th><th>Result</th><th>Warning</th></tr>
+<tr><th>Test</th><th>DB1</th><th>DB2</th><th>Result</th><th>Warning</th><th>Doc</th></tr>
 {%- endif %}
 <tr>
-    <td>{{row[0]}}</td>
-    <td>{{row[3]}}</td>
-    <td>{{row[4]}}</td>
+    <td>{{row[0]|escape}}</td>
+    <td>{{row[3]|escape}}</td>
+    <td>{{row[4]|escape}}</td>
     <td>{% if row[1] == 0 %}<span style="color:green;">Success.</span>{% elif row[1] == -1 %}Failed to run.{% else %}<a href="{{cfg}}_{{row[0]}}.html" style="color:red;">Found {{row[1]}} discrepancies.</a>{% endif %}</td>
-    <td>{% if row[2] %}{% for warn in row[2] %}{{warn}}{{"<br/>" if not loop.last}}{% endfor %}{% endif %}</td>
+    <td>{% if row[2] %}{% for warn in row[2] %}{{warn|escape}}{{"<br/>" if not loop.last}}{% endfor %}{% endif %}</td>
+    <td>{% if row[5] %}{{row[5]|escape}}{% endif %}</td>
 </tr>
 {%- if loop.last %}
 </table>
@@ -255,14 +470,6 @@ RUN_REPORT="""
 </body>
 </html>
 """
-
-
-logging.basicConfig(
-    filename=None if LOGSTDOUT else LOG_FILE,
-    format='%(asctime)s:%(levelname)s:%(name)s:%(message)s',
-    level=logging.INFO
-)
-logger = logging.getLogger(BASENAME)
 
 select_tpl = Template(SELECT_RESULTS)
 insert_tpl = Template(INSERT_RESULTS)
@@ -276,14 +483,15 @@ def exec_sql(con, sql):
     if sql:
         cur = con.cursor()
         if isinstance(sql, str):
-            if DEBUGGING:
-                logger.info('\n\n' + sql.strip() + '\n')
+            logger.debug('\n\n%s\n', sql.strip())
             cur.execute(sql)
         elif isinstance(sql, (list, tuple)):
             for stmt in sql:
-                if DEBUGGING:
-                    logger.info('\n\n' + stmt.strip() + '\n')
+                assert isinstance(stmt, str), f"Expected SQL statement: {stmt}"
+                logger.debug('\n\n%s\n', stmt.strip())
                 cur.execute(stmt)
+        else:
+            assert False, f"Expected SQL statement: {sql}"
         cur.close()
 
 
@@ -305,8 +513,7 @@ def connection(src):
                     return cursor.var(dec.Decimal, arraysize=cursor.arraysize)
             source['con'].outputtypehandler = number_to_decimal
         if source.get('setup'):
-            if DEBUGGING:
-                logger.info('-- setup')
+            logger.debug('-- setup')
             exec_sql(source['con'], source['setup'])
     return source['con']
 
@@ -327,27 +534,24 @@ def pump(run, spec_name, spec, con0, argrows, source_idx):
     else:
         parts = 1
 
-    if DEBUGGING:
-        logger.info(f"-- select {spec['sources'][source_idx]} dataset into ddiff_: {parts} time(s)")
+    logger.debug("-- select %s dataset into ddiff_: %s time(s)", spec['sources'][source_idx], parts)
 
     for part in range(parts):
         if argrows:
             if query_tpl is None:
                 query_tpl = Template(query)
             query = query_tpl.render(argrows=argrows[part*200:part*200+200])
-            if DEBUGGING:
-                logger.info('\n\n' + query.strip() + '\n')
+            logger.debug('\n\n%s\n', query.strip())
         else:
-            if DEBUGGING and part == 0:
-                logger.info('\n\n' + query.strip() + '\n')
+            if part == 0:
+                logger.debug('\n\n%s\n', query.strip())
         cur.execute(query)
 
         if spec.get('cols') is None:
             spec['cols'] = [(i + 1, d[0].lower()) for i, d in enumerate(cur.description) if d[0].lower() not in spec['pk']]
             spec['pk'] = [(i + 1, d[0].lower()) for i, d in enumerate(cur.description) if d[0].lower() in spec['pk']]
-            spec['insert'] = insert_tpl.render(c=spec, database=cfg.DDIFF_SOURCE['database'])
-            if DEBUGGING:
-                logger.info('\n\n' + spec['insert'].strip() + '\n')
+            spec['insert'] = insert_tpl.render(c=spec, database=DDIFF_SOURCE['database'])
+            logger.debug('\n\n%s\n', spec['insert'].strip())
 
         while rowcount < MAX_FETCH_ROWS:
             # get next bunch of rows
@@ -360,7 +564,7 @@ def pump(run, spec_name, spec, con0, argrows, source_idx):
             cur0.executemany(
                 spec['insert'],
                 # cx_Oracle requires list here - not a tuple, not a generator expr.
-                [(CFG_NAME, spec_name, run[0], spec['sources'][source_idx]) + row for row in res]
+                [(CFG_MODULE, spec_name, run[0], spec['sources'][source_idx]) + row for row in res]
             )
     cur.close()
     cur0.close()
@@ -368,6 +572,10 @@ def pump(run, spec_name, spec, con0, argrows, source_idx):
 
 
 def process(run, spec_name, spec, con0, argrows):
+    """
+    Process spec from config-file.
+    """
+    return_code = 0
     try:
         assert (
             isinstance(spec, dict)
@@ -384,14 +592,15 @@ def process(run, spec_name, spec, con0, argrows):
             ), f"Bad spec {spec_name}"
 
         if spec.get('cols') is None:
-            logger.info(f"test {spec_name}; DB1 = {spec['sources'][0]}, DB2 = {spec['sources'][1]}")
+            logger.info("test %s; DB1 = %s, DB2 = %s", spec_name, spec['sources'][0], spec['sources'][1])
             specs[spec_name]['warnings'] = []
+            specs[spec_name]['safe_name'] = re.sub(r'[^\w. \-()\[\]]', '_', spec_name).rstrip('. ').lstrip()
 
         we_have_1st_pass_diffs = False
         if args.two:
             # Check if we have discrepancies from the first pass.
             cur0 = con0.cursor()
-            cur0.execute(f"select count(*) from ddiff_diffs_ where cfg='{CFG_NAME}' and spec='{spec_name}'")
+            cur0.execute(f"select count(*) from ddiff_diffs_ where cfg='{CFG_MODULE}' and spec='{spec_name}'")
             we_have_1st_pass_diffs = (cur0.fetchone()[0] > 0)
 
         rows = []
@@ -406,16 +615,15 @@ def process(run, spec_name, spec, con0, argrows):
             # Get differences between 1st and 2nd query results.
             select = \
                 select_tpl.render(
-                    cfg=CFG_NAME,
+                    cfg=CFG_MODULE,
                     spec=spec_name,
                     run=run,
                     c=spec,
-                    database=cfg.DDIFF_SOURCE['database'],
+                    database=DDIFF_SOURCE['database'],
                     op=spec.get('op', '=')
                 )
-            if DEBUGGING:
-                logger.info('-- select discrepancies from ddiff_')
-                logger.info('\n\n' + select.strip() + '\n')
+            logger.debug('-- select discrepancies from ddiff_')
+            logger.debug('\n\n%s\n', select.strip())
             cur0 = con0.cursor()
             cur0.execute(select)
             rows = cur0.fetchall()
@@ -434,62 +642,59 @@ def process(run, spec_name, spec, con0, argrows):
 
                     if args.one or args.two:
                         # Store the found discrepancies in ddiff_diffs_ table.
-                        insert_diffs = insert_diffs_tpl.render(c=spec, database=cfg.DDIFF_SOURCE['database'])
-                        if DEBUGGING:
-                            logger.info('-- insert discrepancies into ddiff_diffs_')
-                            logger.info('\n\n' + insert_diffs.strip() + '\n')
+                        insert_diffs = insert_diffs_tpl.render(c=spec, database=DDIFF_SOURCE['database'])
+                        logger.debug('-- insert discrepancies into ddiff_diffs_')
+                        logger.debug('\n\n%s\n', insert_diffs.strip())
                         cur0.executemany(
                             insert_diffs,
                             # cx_Oracle requires list here - not a tuple, not a generator expr.
-                            [(CFG_NAME, spec_name, run[0]) + row for row in rows]
+                            [(CFG_MODULE, spec_name, run[0]) + row for row in rows]
                         )
 
                     if args.two:
                         # Intersect the newly found discrepancies with the stored.
                         select_diffs = \
                             select_diffs_tpl.render(
-                                cfg=CFG_NAME,
+                                cfg=CFG_MODULE,
                                 spec=spec_name,
                                 run=run,
                                 #c=spec,
                                 pk_nums=[i+1 for i in range(len(spec['pk']))],
                                 col_nums=[i+1+len(spec['pk']) for i in range(0, len(spec['cols']) * 2, 2)],
-                                database=cfg.DDIFF_SOURCE['database'],
+                                database=DDIFF_SOURCE['database'],
                             )
-                        if DEBUGGING:
-                            logger.info('-- select persistent discrepancies from ddiff_diffs_')
-                            logger.info('\n\n' + select_diffs.strip() + '\n')
+                        logger.debug('-- select persistent discrepancies from ddiff_diffs_')
+                        logger.debug('\n\n%s\n', select_diffs.strip())
                         cur0.execute(select_diffs)
                         rows = cur0.fetchall()
 
                     if not args.one and rows:
-                        # TODO Generate multi-page test reports OR limit number of rows in the report
+                        # Generate multi-page test reports OR limit number of rows in the report
                         if spec.get(spec_name) and len(rows) > MAX_DISCREPANCIES * (100 if args.one or args.two else 1):
                             specs[spec_name]['warnings'].append(f"Found {len(rows)} discrepancies, go no deeper.")
                         cols_index = len(spec['pk'])
                         test_report = \
                             test_report_tpl.render(
-                                cfg=CFG_NAME,
+                                cfg=CFG_MODULE,
                                 run=run,
                                 test=spec_name,
-                                #rows=rows,
+                                doc=specs[spec_name].get('doc'),
                                 rows=tuple(tuple(row[:cols_index]) + tuple(x for x in zip(row[cols_index::2], row[cols_index+1::2])) for row in rows),
-                                #titles=(x[0] for x in cur0.description),
                                 titles=titles,
                                 warnings=specs[spec_name].get('warnings'),
                                 sources=specs[spec_name]['sources']
                             )
-                        test_report_file = OUT_FILE.format(f"{CFG_NAME}_{spec_name}")
+                        test_report_file = OUT_FILE.format(f"{CFG_MODULE}_{spec_name}")
                         with open(test_report_file, 'w', encoding="UTF-8") as f:
                             f.write(test_report)
 
-                    logger.info(f"Found {len(rows)} discrepancies.")
+                    logger.info("Found %s discrepancies.", len(rows))
                     specs[spec_name]['result'] = len(rows)
             else:
-                logger.info(f"Found {len(rows)} discrepancies.")
+                logger.info("Found %s discrepancies.", len(rows))
                 specs[spec_name]['result'] = len(rows)
         else:
-            logger.info(f"Found {len(rows)} discrepancies.")
+            logger.info("Found %s discrepancies.", len(rows))
             specs[spec_name]['result'] = len(rows)
 
         if not DDIFF_KEEP:
@@ -500,39 +705,49 @@ def process(run, spec_name, spec, con0, argrows):
         for src in sources.values():
             if src.get('con'):
                 src['con'].rollback()
+        return_code = 1
+    return return_code
 
 
 def main():
-    logger.info(f'-- start {" ".join(sys.argv)}')
+    logger.info("-- start %s", ' '.join(sys.argv))
 
+    error_count = 0
     _temp = datetime.now()
     run = [
         int(_temp.strftime('%Y%m%d%H%M%S')),
         _temp.strftime('%Y-%m-%d %H:%M:%S'),
         _temp.strftime('%Y-%m-%d_%H-%M-%S')
     ]
-    logger.info(f"run {run[0]}")
-    if DEBUGGING:
-        logger.info(f"args: {args}")
+    logger.info("run %s", run[0])
+    logger.debug("args: %s", args)
 
     con0 = None
     for spec_name, spec in specs.items():
-        if SPEC in (spec_name, 'all'):
-            for src in (sources[spec['sources'][0]], sources[spec['sources'][1]], cfg.DDIFF_SOURCE):
+        if SPEC in (spec_name, 'all', *spec.get('tags', [])):
+            spec['sources'] = spec.get('sources', getattr(cfg, 'SOURCES', [None, None]))
+            if spec['sources'] == [None, None]:
+                logger.error('Skipping spec "%s" with no sources', spec_name)
+                error_count += 1
+                continue
+            for src in (sources[spec['sources'][0]], sources[spec['sources'][1]], DDIFF_SOURCE):
                 if src.get('lib') is None:
-                    if src["database"] == "oracle":
-                        import cx_Oracle
-                        src["lib"] = cx_Oracle
-                    elif src["database"] == "postgres":
-                        import psycopg2
-                        #from psycopg2 import extras
-                        src["lib"] = psycopg2
-                    elif src["database"] == "mysql":
+                    if src['database'] == 'oracle':
+                        #import cx_Oracle
+                        #src['lib'] = cx_Oracle
+                        import oracledb
+                        src['lib'] = oracledb
+                        if src.get('oracledb_thick_mode'):
+                            src['lib'].init_oracle_client()
+                    elif src['database'] == 'postgres':
+                        import psycopg
+                        src['lib'] = psycopg
+                    elif src['database'] == 'mysql':
                         import mysql.connector
-                        src["lib"] = mysql.connector
-                    elif src["database"] == "sqlite":
+                        src['lib'] = mysql.connector
+                    elif src['database'] == 'sqlite':
                         import sqlite3
-                        src["lib"] = sqlite3
+                        src['lib'] = sqlite3
                         # Setup the adaptor in order to save decimals as text
                         # uniformely without trailing zeros and a trailing dot.
                         def decimal_to_text(d):
@@ -541,46 +756,46 @@ def main():
                             return s.rstrip('0').rstrip('.') if '.' in s else '0' if d == 0 else s
                         sqlite3.register_adapter(dec.Decimal, decimal_to_text)
                     else:
-                        src["lib"] = None
-            con0 = connection(cfg.DDIFF_SOURCE)
-            process(run, spec_name, spec, con0, spec.get('argrows', []))
+                        src['lib'] = None
+            con0 = connection(DDIFF_SOURCE)
+            error_count += process(run, spec_name, spec, con0, spec.get('argrows', []))
 
     if not args.one:
         run_results = [
-            (spec_name, spec.get('result', -1), spec.get('warnings'), spec['sources'][0], spec['sources'][1])
-            for spec_name, spec in specs.items() if SPEC in (spec_name, 'all')
+            (spec['safe_name'], spec.get('result', -1), spec.get('warnings'), spec['sources'][0], spec['sources'][1], spec.get('doc'))
+            for spec_name, spec in specs.items() if SPEC in (spec_name, 'all', *spec.get('tags', []))
         ]
         succeeded = len([1 for x in run_results if x[1] == 0])
         failed = len([1 for x in run_results if x[1] > 0])
         not_run = len([1 for x in run_results if x[1] == -1])
         run_report = \
             run_report_tpl.render(
-                cfg=CFG_NAME,
+                cfg=CFG_MODULE,
                 run=run,
                 rows=run_results,
                 succeeded=succeeded,
                 failed=failed,
                 not_run=not_run
             )
-        run_report_file = OUT_FILE.format(f"{CFG_NAME}")
-        with open(run_report_file, 'w', encoding="UTF-8") as f:
+        run_report_file = OUT_FILE.format(f"{CFG_MODULE}")
+        with open(run_report_file, 'w', encoding='UTF-8') as f:
             f.write(run_report)
 
         if not DDIFF_KEEP:
             cur0 = con0.cursor()
-            cur0.execute(f"delete from ddiff_diffs_ where cfg = '{CFG_NAME}'")
+            cur0.execute(f"delete from ddiff_diffs_ where cfg = '{CFG_MODULE}'")
             con0.commit()
 
     for src in sources.values():
-        if src.get('con'):
+        if src.get('con') is not None:
             if src.get('upset'):
-                if DEBUGGING:
-                    logger.info('-- upset')
+                logger.debug("-- upset")
                 exec_sql(src['con'], src.get('upset'))
             src['con'].close()
             src['con'] = None
 
-    logger.info('-- done')
+    logger.info("-- done %s", f" WITH {error_count} ERRORS" if error_count else '')
+    sys.exit(error_count)
 
 
 if __name__ == '__main__':

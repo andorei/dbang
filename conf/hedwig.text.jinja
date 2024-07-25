@@ -1,0 +1,9 @@
+{%- if greeting %}{{greeting}}{% endif %}
+{%- for name, part in zip(names, parts) %}
+{%- if name %}
+{{name}}
+
+{%- endif %}
+{{part}}
+{%- endfor %}
+{%- if signature %}{{signature}}{% endif %}

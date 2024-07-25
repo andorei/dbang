@@ -1,4 +1,4 @@
-# dbang Command Line Utilities, v0.2
+# dbang Command Line Utilities, v0.3
 
 Read this in other languages: [русский](README.ru.md).
 
@@ -10,17 +10,16 @@ dbang command line utilities written in Python help to implement typical solutio
 * `dput.py` - [loads data from csv, xlsx or json files into database tables](doc/dput.md);
 * `hedwig.py` - [sends emails built from files (e.g. files produced by ddiff or dget)](doc/hedwig.md).
 
-The utilities work with Oracle, PostgreSQL, SQLite and MySQL databases using Python database API modules.
+The utilities work with Oracle, PostgreSQL, SQLite and MySQL databases using Python DB-API modules.
 
 `ddiff.py` and `dtest.py` assess logical consistency and integrity of DB systems.
 
 `dget.py` and `dput.py` get the data out and put the data in databases, as specified in config-files.
 
 dbang utiliies
-* use configuration files from `cfg` directory,
-* write log files in `log` directory,
-* find files to load into DB in `in` directory (if not specified otherwise in a config-file).,
-* save their resulting files in `out` directory (if not specified otherwise in a config-file).
+* process specs from config-files written in Python,
+* write error, info and debug messages in log files, if logging or debugging mode is on,
+* save their resulting files and logs in directories set with `OUT_DIR` and `LOG_DIR` variables in config-file, or in the current directory if the variables are not set.
 
 You run a dbang utility with command line
 
@@ -32,14 +31,18 @@ where `<cfg-file>` is a config-file name, and `<spec>` is a specification name f
 
 To see available options run the utility with option `--help`.
 
-Run the utilities with test config-files and see the results in the `out` directory:
+Run the utilities with test config-files and see the results in the `out` directory and log files in the `log`:
 
 ```
 ddiff.py ddiff-test-sqlite
-dtest.py dtest-test
-dget.py dget-test
-dput.py dput-test-sqlite
+dtest.py dtest-test-sqlite
+dget.py dget-test-sqlite
+dput.py dput-test-sqlite all
 ```
+
+The above shown config-files use sqlite database defined in file `cfg/sources.py` as data source `"sqlite-source"`.
+
+To run config-files for other databases edit connection parameters for data sources `"oracle-source"`, `"postgres-source"` or `"mysql-source"` in file `cfg/sources.py`. That done, utilities run with config-files will connect to the DB you specified.
 
 When running `dput.py`, in addition to the config-file name, you need to specify the spec name and, optionally, the name of input file with extension `.csv`, `.xlsx` or `.json`. By default the filename is given in the spec and the file is looked for in the `in` directory, if not specified otherwise in a config-file.
 
@@ -50,8 +53,6 @@ hedwig.py hedwig-test
 ```
 
 and check your incoming mail.
-
-The test config-files use sqlite DB specified in data source `"sqlite-source"` in file `cfg/sources.py`. To run config-files with other DBs just edit data sources `"oracle-source"`, `"postgres-source"` or `"mysql-source"`, and specify your chosen source in test config-file.
 
 To efficiently use dbang utilities you should learn how to create config-files with specifications of your own. You might use one of the test config-files as a template to start with. Save it with a new name and modify and adjust it to your needs.
 
@@ -114,12 +115,15 @@ import sys
 from sources import sources
 
 #
-# MANDATORY constants used by the utility
+# SETTINGS USED BY utility
 #
-OUT_DIR = os.path.join(os.path.dirname(os.path.realpath(sys.argv[0])), 'out')
+OUT_DIR = os.path.join(os.path.dirname(__file__), '..', 'out')
+DEBUGGING = True
+LOGGING = True
+LOG_DIR = os.path.join(os.path.dirname(__file__), '..', 'log')
 
 #
-# Optional constants used in specs below
+# SETTINGS USED IN specs
 #
 # ...
 
@@ -145,9 +149,9 @@ sources['source_2']['setup'] = sources['source_2'].get('setup', []) + [
 
 Config-files for `hedwig` do not import nor use data sources from `sources`. The rest is similar.
 
-After `import` statements there goes a block of constants which are necessary for utilities to work correctly. All the mandatory constants are defined in test config-files and should be present in config-files of your own.
+After `import` statements there goes a block of parameters used by utilities. All such parameters are defined in test config-files and while they might be useful they are not mandatory. If omited the utilities behave by default.
 
-The block of mandatory constants is followed by an optional block of user defined constants. If you have to repeatedly use the same expressions in specs then consider defining constаnts and using them instead.
+The block of utility parameters is followed by an optional block of user defined variables. If you have to repeatedly use the same expressions in specs then consider defining variables and using them instead.
 
 The `specs` dict contains named specifications (which are dicts) and is the core of a config-file. Specs tell utilities what exactly to do. See test config-files for the commented specifications.
 

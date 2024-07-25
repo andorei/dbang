@@ -15,7 +15,7 @@
 <table>
 <tr>{% for t in titles %}<th>{{t}}</th>{% endfor %}</tr>
 {%- for row in rows %}
-<tr>{% for d in row %}<td{{' style="text-align:right;"' if d is number else ''}}>{{d if d is not none else ''}}</td>{% endfor %}</tr>
+<tr>{% for d in row %}<td{{' style="text-align:right;"' if d is number else ''}}>{% if d is none %}{% elif d is number %}{{d|replace('.', dec_sep)}}{% else %}{{d}}{% endif %}</td>{% endfor %}</tr>
 {%- endfor %}
 </table>
 </body>
