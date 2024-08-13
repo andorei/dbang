@@ -1,6 +1,9 @@
 import os
 import sys
 
+from sources import hedwig
+
+
 #
 # To ensure all test emails will be sent remove file ~/.dbang/.hedwig-test.json
 # which keeps the timestamps for files used in test specs below.
@@ -11,8 +14,8 @@ import sys
 #
 # MANDATORY MANDATORY MANDATORY MANDATORY MANDATORY MANDATORY MANDATORY
 
-MAIL_SERVER = 'owa.boobl-goom.ru' # localhost
-MAIL_FROM = 'dbang <dbang@dbang.dbang>'
+MAIL_SERVER = hedwig.get('MAIL_SERVER', 'localhost')
+MAIL_FROM = hedwig.get('MAIL_FROM', 'dbang <dbang@example.net>')
 
 # OPTIONAL OPTIONAL OPTIONAL OPTIONAL OPTIONAL OPTIONAL OPTIONAL OPTIONAL
 
@@ -36,7 +39,7 @@ ENCODING = 'UTF-8'
 #
 # SETTINGS USED IN specs
 #
-MAIL_TO = 'trofimov.aa@boobl-goom.ru'
+MAIL_TO = hedwig.get('MAIL_TO', 'user@example.net')
 
 TEST_HTML_FILE = os.path.join(os.path.dirname(__file__), '..', 'out', 'test.html')
 HTML_TEMPLATE = """<!DOCTYPE html>
@@ -405,7 +408,7 @@ specs = {
         "tags": ['clippings', 'logs', 'html'],
         "mail": {
             "to": [MAIL_TO],
-            "subject": "{dbang} clippings.html",
+            "subject": "{dbang} logged errors.html",
             "body": [
                 {
                     "file": os.path.join(os.path.dirname(__file__), '..', 'log', '????-??-??_*.log'),

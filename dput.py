@@ -445,13 +445,17 @@ def process(spec_name, spec, input_file, stat):
     try:
         assert in_format in ('csv', 'xlsx', 'json'), \
             f"Bad format \"{in_format}\" in spec \"{spec_name}\""
-        assert in_format != 'json' or spec.get('insert_values'), \
-            f"Missing \"insert_values\" in spec \"{spec_name}\""
-        assert spec.get('insert_statement') is None or spec.get('insert_values'), \
-            f"Missing \"insert_values\" in spec \"{spec_name}\""
-        assert spec.get('insert_statements', []) == [] or \
-            len(spec.get('insert_tables', [])) == len(spec['insert_statements']), \
-            f"Missing or incomplete \"insert_tables\" in spec \"{spec_name}\""
+        assert in_format != 'json' or spec.get('insert_rows') or spec.get('insert_values'), \
+            f"Missing both \"insert_rows\" and \"insert_values\" in spec \"{spec_name}\""
+        assert spec.get('insert_action') is None or spec.get('insert_rows') or spec.get('insert_values'), \
+            f"Missing both \"insert_rows\" and \"insert_values\" in spec \"{spec_name}\""
+        assert spec.get('insert_rows') is None or spec.get('insert_values') is None, \
+            f"Both \"insert_rows\" and \"insert_values\" are in spec \"{spec_name}\""
+        assert spec.get('insert_rows') is None or spec.get('nested_insert_rows') is None, \
+            f"Both \"insert_rows\" and \"nested_insert_rows\" are in spec \"{spec_name}\""
+        assert spec.get('nested_insert_actions', []) == [] or \
+            len(spec.get('nested_insert_rows', [])) == len(spec['nested_insert_actions']), \
+            f"Missing or incomplete \"nested_insert_rows\" in spec \"{spec_name}\""
         assert spec.get('validate_procedures') is None or \
             source['database'] in ('postgres', 'mysql', 'oracle'), \
             f"Unexpected \"validate_procedures\" in spec \"{spec_name}\""
@@ -469,8 +473,6 @@ def process(spec_name, spec, input_file, stat):
             if file_mtime > stat[spec_name]['mtime']:
                 recent_files.append(file_name)
             latest_mtime = max(file_mtime, latest_mtime)
-        if recent_files:
-            stat[spec_name]['mtime'] = latest_mtime
 
         if (not args.force and not spec.get('force') and not recent_files) or not all_files:
             logger.info("%s - No files to load: %s", spec_name, input_file)
@@ -594,30 +596,35 @@ def process(spec_name, spec, input_file, stat):
                 if count <= spec.get('skip_header', 0):
                     continue
 
-                if in_format == 'csv':
-                    if spec.get('insert_statement'):
-                        data.append(spec['insert_values'](row))
-                    elif spec.get('insert_values'):
-                        data.append((iload, count, *(spec['insert_values'](row))))
+                if spec.get('insert_rows'):
+                    insert_rows = spec['insert_rows'](row)
+                    if not insert_rows:
+                        # input row was filtered out by spec['insert_rows']
+                        count -= 1
+                    elif spec.get('insert_action'):
+                        data.extend(insert_rows)
+                        count += len(insert_rows) - 1
                     else:
-                        data.append((iload, count, *row))
-                elif in_format == 'xlsx':
-                    if spec.get('insert_statement'):
-                        data.append(spec['insert_values'](row))
-                    elif spec.get('insert_values'):
-                        data.append((iload, count, *(spec['insert_values'](row))))
+                        data.extend([(iload, count+i, *r) for i, r in enumerate(insert_rows)])
+                        count += len(insert_rows) - 1
+                elif spec.get('insert_values'):
+                    insert_values = spec['insert_values'](row)
+                    if not insert_values:
+                        # input row was filtered out by spec['insert_values']
+                        count -= 1
+                    elif spec.get('insert_action'):
+                        data.append(insert_values)
+                        count += 1
                     else:
-                        data.append((iload, count, *row))
-                elif in_format == 'json':
-                    if spec.get('insert_statement'):
-                        data.append(spec['insert_values'](row))
-                    else:
-                        data.append((iload, count, *(spec['insert_values'](row))))
+                        data.append((iload, count, *insert_values))
+                        count += 1
+                else:
+                    data.append((iload, count, *row))
 
                 # build line insert stmt
-                if not insert_stmt:
+                if not insert_stmt and data:
                     if source['database'] == 'mysql':
-                        insert_stmt = spec.get('insert_statement') or \
+                        insert_stmt = spec.get('insert_action') or \
                             """
                             insert into ida_lines (
                                 iload, iline, """ + ','.join(f"c{i+1}" for i in range(len(data[0]) - 2)) + """
@@ -626,7 +633,7 @@ def process(spec_name, spec, input_file, stat):
                             )
                             """
                     elif source['database'] == 'oracle':
-                        insert_stmt = spec.get('insert_statement') or \
+                        insert_stmt = spec.get('insert_action') or \
                             """
                             insert into ida_lines (
                                 iload, iline, """ + ','.join(f"c{i+1}" for i in range(len(data[0]) - 2)) + """
@@ -635,7 +642,7 @@ def process(spec_name, spec, input_file, stat):
                             )
                             """
                     elif source['database'] == 'postgres':
-                        insert_stmt = spec.get('insert_statement') or \
+                        insert_stmt = spec.get('insert_action') or \
                             """
                             insert into ida_lines (
                                 iload, iline, """ + ','.join(f"c{i+1}" for i in range(len(data[0]) - 2)) + """
@@ -644,7 +651,7 @@ def process(spec_name, spec, input_file, stat):
                             )
                             """
                     elif source['database'] == 'sqlite':
-                        insert_stmt = spec.get('insert_statement') or \
+                        insert_stmt = spec.get('insert_action') or \
                             """
                             insert into ida_lines (
                                 iload, iline, """ + ','.join(f"c{i+1}" for i in range(len(data[0]) - 2)) + """
@@ -655,46 +662,46 @@ def process(spec_name, spec, input_file, stat):
                     logger.debug("-- insert stmt\n%s\n", insert_stmt.rstrip())
 
                 # prepare current row's nested data
-                for n, nested_rows in enumerate(spec.get('insert_tables', [])):
+                for n, nested_rows in enumerate(spec.get('nested_insert_rows', [])):
                     if in_format == 'csv':
-                        if spec.get('insert_statements') and spec['insert_statements'][n]:
-                            nested_data.append(spec['insert_tables'][n](row))
+                        if spec.get('nested_insert_actions') and spec['nested_insert_actions'][n]:
+                            nested_data.append(spec['nested_insert_rows'][n](row))
                         else:
                             nested_data.append(
                                 [
                                     (iload, count, n+1, nr+1, *nrow) \
-                                    for nr, nrow in enumerate(spec['insert_tables'][n](row))
+                                    for nr, nrow in enumerate(spec['nested_insert_rows'][n](row))
                                 ]
                             )
                     elif in_format == 'xlsx':
-                        if spec.get('insert_statements') and spec['insert_statements'][n]:
-                            nested_data.append(spec['insert_tables'][n](row))
+                        if spec.get('nested_insert_actions') and spec['nested_insert_actions'][n]:
+                            nested_data.append(spec['nested_insert_rows'][n](row))
                         else:
                             nested_data.append(
                                 [
                                     (iload, count, n+1, nr+1, *nrow) \
-                                    for nr, nrow in enumerate(spec['insert_tables'][n](row))
+                                    for nr, nrow in enumerate(spec['nested_insert_rows'][n](row))
                                 ]
                             )
                     elif in_format == 'json':
-                        if spec.get('insert_statements') and spec['insert_statements'][n]:
-                            nested_data.append(spec['insert_tables'][n](row))
+                        if spec.get('nested_insert_actions') and spec['nested_insert_actions'][n]:
+                            nested_data.append(spec['nested_insert_rows'][n](row))
                         else:
                             nested_data.append(
                                 [
                                     (iload, count, n+1, nr+1, *nrow) \
-                                    for nr, nrow in enumerate(spec['insert_tables'][n](row))
+                                    for nr, nrow in enumerate(spec['nested_insert_rows'][n](row))
                                 ]
                             )
 
                 # build nested insert stmts as soon as we get nested data
-                for n, nested_rows in enumerate(spec.get('insert_tables', [])):
+                for n, nested_rows in enumerate(spec.get('nested_insert_rows', [])):
                     if len(nested_stmts) == n:
                         nested_stmts.append(None)
                     if source['database'] == 'mysql':
                         if not nested_stmts[n] and nested_data[n]:
                             nested_stmts[n] = \
-                                spec['insert_statements'][n] if spec.get('insert_statements') else \
+                                spec['nested_insert_actions'][n] if spec.get('nested_insert_actions') else \
                                 """
                                 insert into ida_lines (
                                     iload, iline, ntable, nline, """ + ','.join(f"c{i+1}" for i in range(len(nested_data[n][0]) - 4)) + """
@@ -706,7 +713,7 @@ def process(spec_name, spec, input_file, stat):
                     elif source['database'] == 'oracle':
                         if not nested_stmts[n] and nested_data[n]:
                             nested_stmts[n] = \
-                                spec['insert_statements'][n] if spec.get('insert_statements') else \
+                                spec['nested_insert_actions'][n] if spec.get('nested_insert_actions') else \
                                 """
                                 insert into ida_lines (
                                     iload, iline, ntable, nline, """ + ','.join(f"c{i+1}" for i in range(len(nested_data[n][0]) - 4)) + """
@@ -718,7 +725,7 @@ def process(spec_name, spec, input_file, stat):
                     elif source['database'] == 'postgres':
                         if not nested_stmts[n] and nested_data[n]:
                             nested_stmts[n] = \
-                                spec['insert_statements'][n] if spec.get('insert_statements') else \
+                                spec['nested_insert_actions'][n] if spec.get('nested_insert_actions') else \
                                 """
                                 insert into ida_lines (
                                     iload, iline, ntable, nline, """ + ','.join(f"c{i+1}" for i in range(len(nested_data[n][0]) - 4)) + """
@@ -730,7 +737,7 @@ def process(spec_name, spec, input_file, stat):
                     elif source['database'] == 'sqlite':
                         if not nested_stmts[n] and nested_data[n]:
                             nested_stmts[n] = \
-                                spec['insert_statements'][n] if spec.get('insert_statements') else \
+                                spec['nested_insert_actions'][n] if spec.get('nested_insert_actions') else \
                                 """
                                 insert into ida_lines (
                                     iload, iline, ntable, nline, """ + ','.join(f"c{i+1}" for i in range(len(nested_data[n][0]) - 4)) + """
@@ -754,7 +761,7 @@ def process(spec_name, spec, input_file, stat):
                 nested_data.clear()
 
                 # insert top-level rows
-                if len(data) % batch_size == 0:
+                if data and len(data) % batch_size == 0:
                     if source['database'] == 'postgres':
                         cur.executemany(insert_stmt, data)
                     elif source['database'] == 'mysql':
@@ -789,23 +796,15 @@ def process(spec_name, spec, input_file, stat):
         # 2) validate loaded data
 
         err_count = 0
-        if spec.get('validate_statements') or spec.get('validate_procedures'):
+        if spec.get('validation_actions'):
 
             logger.debug('-- validate')
-            for stmt in spec.get('validate_statements', []):
+            for stmt in spec.get('validation_actions', []):
                 logger.debug('\n%s\n', stmt.rstrip())
                 cur.execute(stmt, (iload,))
-
-            for proc in spec.get('validate_procedures', []):
-                logger.debug('\n%s\n', proc.rstrip())
-                if source['database'] == 'postgres':
-                    cur.execute(f"call {proc}(%s)", (iload,))
-                else:
-                    cur.callproc(proc, (iload,))
-
             con.commit()
 
-            if spec.get('insert_statement') is None:
+            if spec.get('insert_action') is None:
                 #
                 # follow built-in ida protocol
                 # if ida_lines rows have errors then update load status (ida.isat)
@@ -844,23 +843,15 @@ def process(spec_name, spec, input_file, stat):
 
         # 3) process loaded data
 
-        if err_count == 0 and (spec.get('process_statements') or spec.get('process_procedures')):
+        if err_count == 0 and spec.get('process_actions'):
 
             logger.debug('-- process')
-            for stmt in spec.get('process_statements', []):
+            for stmt in spec.get('process_actions', []):
                 logger.debug('\n%s\n', stmt.rstrip())
                 cur.execute(stmt, (iload,))
-
-            for proc in spec.get('process_procedures', []):
-                logger.debug('\n%s\n', proc.rstrip())
-                if source['database'] == 'postgres':
-                    cur.execute(f"call {proc}(%s)", (iload,))
-                else:
-                    cur.callproc(proc, (iload,))
-
             con.commit()
 
-            if spec.get('insert_statement') is None:
+            if spec.get('insert_action') is None:
                 #
                 # follow built-in ida protocol
                 # if ida_lines rows have errors then update load status (ida.isat)
@@ -961,6 +952,9 @@ def process(spec_name, spec, input_file, stat):
         )
         con.commit()
 
+        # set stat data no earlier than all files are successfully processed
+        if recent_files:
+            stat[spec_name]['mtime'] = latest_mtime
     except:
         logger.exception('EXCEPT')
         if sources[spec['source']].get('con'):

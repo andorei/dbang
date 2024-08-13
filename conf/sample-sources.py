@@ -2,11 +2,11 @@ import os
 
 sources = {
     #
-    # Data sources used in dbang test specs
+    # Data sources used in dbang test specs.
     #
     "sqlite-source": {
         "database": "sqlite",
-        "con_string": os.path.join(os.environ.get('HOMEPATH', os.environ.get('HOME')), '.dbang', 'dbang.db')
+        "con_string": os.path.join(os.path.expanduser('~'), '.dbang', 'dbang.db')
     },
     "postgres-source": {
         "database": "postgres",
@@ -22,4 +22,13 @@ sources = {
         "con_string": "",
         "con_kwargs": {'host': 'host', 'database': 'database', 'user': 'username', 'password': 'password'}
     },
+}
+
+hedwig = {
+    #
+    # Sensitive hedwig parameters used in dbang test specs.
+    #
+    'MAIL_SERVER': 'smtp.example.net',
+    'MAIL_FROM': 'dbang <dbang@example.net>',
+    'MAIL_TO': 'user@example.net'
 }

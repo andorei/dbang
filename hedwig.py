@@ -198,6 +198,7 @@ def process(spec_name, spec, stat):
         mail = spec['mail']
 
         # find recently updated files
+        stat_ = dict()
         all_files = []
         recent_files = []
         for part in spec['mail']['body'] + spec['mail'].get('attachments', []):
@@ -207,15 +208,17 @@ def process(spec_name, spec, stat):
                     file_mtime = os.stat(file_name).st_mtime
                     if not stat[spec_name].get(file_name):
                         stat[spec_name][file_name] = {'mtime': 0, 'offset': 0}
+                    if not stat_.get(file_name):
+                        stat_[file_name] = {'mtime': 0, 'offset': 0}
                     if file_mtime > stat[spec_name][file_name]['mtime']:
                         recent_files.append(file_name)
-                        stat[spec_name][file_name]['mtime'] = file_mtime
+                        stat_[file_name]['mtime'] = file_mtime
                 if len(all_files) == FILES_PER_MESSAGE:
                     break
 
         if (not args.force and not spec.get('force') and not recent_files) or not all_files:
             logger.info("%s - No files to send", spec_name)
-            return
+            return return_code
 
         if args.force or spec.get('force'):
             target_files = all_files
@@ -234,7 +237,7 @@ def process(spec_name, spec, stat):
                             content_size = len(content)
                             if stat[spec_name][file_name]['offset'] > 0:
                                 content = content[stat[spec_name][file_name]['offset']:]
-                            stat[spec_name][file_name]['offset'] = content_size
+                            stat_[file_name]['offset'] = content_size
                         if part.get('clip'):
                             findings = re.findall(part['clip'], content, flags=re.MULTILINE|re.DOTALL)
                             if not findings:
@@ -293,6 +296,9 @@ def process(spec_name, spec, stat):
         else:
             logger.info("%s - Nothing to send", spec_name)
 
+        # set stat data no earlier than all files are successfully processed
+        for k, v in stat_.items():
+            stat[spec_name][k] = v
     except:
         logger.exception('EXCEPT')
         return_code = 1

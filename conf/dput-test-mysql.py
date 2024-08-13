@@ -53,7 +53,7 @@ specs = {
         #
         # optional args go to ida.arg1 ... arg9
         #
-        #"args": ['one', 'two', '3', '4', '5', '6', '7', '8', '9']
+        #"args": ['one', 'two', '3', '4', '5', '6', '7', '8', '9'],
         #
         # the following parameters default to the global ones
         #
@@ -66,13 +66,13 @@ specs = {
         #
         #"skip_header": 0,
         #
-        # how many last loads preserved in ida tables
+        # how many most recent loads preserved in ida tables
         #
         #"preserve_n_loads": PRESERVE_N_LOADS,
         #
         # optionally validate loaded data
         #
-        "validate_statements": [
+        "validation_actions": [
             """
             update ida_lines set
                 istat = 2,
@@ -98,7 +98,7 @@ specs = {
         #
         # optionally process validated data
         #
-        "process_statements": [
+        "process_actions": [
             # just teardown
             "delete from ida where iload = %s"
         ]
@@ -107,13 +107,13 @@ specs = {
         "tags": ['csv', 'ida', 'skip_header'],
         "file": "test.csv",
         "skip_header": 1,
-        "process_statements": ["delete from ida where iload = %s"]
+        "process_actions": ["delete from ida where iload = %s"]
     },
     "csv_proc_test": {
         "tags": ['csv'],
         "file": "test.csv",
-        "validate_procedures": ['validate_dput_test'],
-        "process_procedures": ['process_dput_test']
+        "validation_actions": ['call validate_dput_test(%s)'],
+        "process_actions": ['call process_dput_test(%s)']
     },
     "csv_test_test": {
         "tags": ['csv'],
@@ -123,17 +123,17 @@ specs = {
         #
         # statement to insert data into user defined table
         #
-        "insert_statement": "insert into dput_test (code, name, alpha2, alpha3) values (%s, %s, %s, %s)",
+        "insert_action": "insert into dput_test (code, name, alpha2, alpha3) values (%s, %s, %s, %s)",
         #
         # tuple of values to insert with the insert statements
         #
         "insert_values": lambda row: (row[3], row[0], row[1], row[2]),
-        "process_statements": ["delete from ida where iload = %s"]
+        "process_actions": ["delete from ida where iload = %s"]
     },
     "csv_parts_test": {
         "tags": ['csv', 'ida'],
-        "file": "test_??????.csv",
-        "process_statements": ["delete from ida where iload = %s"]
+        "file": "test_000???.csv",
+        "process_actions": ["delete from ida where iload = %s"]
     },
     "json_ida_test": {
         "tags": ['ida'],
@@ -143,7 +143,7 @@ specs = {
         # tuple of values to insert into ida_lines table
         #
         "insert_values": lambda row: (row["code"], row["name"], row.get("alpha2"), row.get("alpha3")),
-        "validate_statements": [
+        "validation_actions": [
             """
             update ida_lines set
                 istat = 2,
@@ -166,49 +166,49 @@ specs = {
                 and length(c4) != 3
             """,
         ],
-        "process_statements": ["delete from ida where iload = %s"]
+        "process_actions": ["delete from ida where iload = %s"]
     },
     "json_test_test": {
         "encoding": "UTF-8",
         "file": "test.json",
-        "insert_statement": "insert into dput_test (code, name, alpha2, alpha3) values (%s, %s, %s, %s)",
+        "insert_action": "insert into dput_test (code, name, alpha2, alpha3) values (%s, %s, %s, %s)",
         "insert_values": lambda row: (row["code"], row["name"], row["alpha2"], row["alpha3"]),
-        "process_statements": ["delete from ida where iload = %s"]
+        "process_actions": ["delete from ida where iload = %s"]
     },
     "json_parts_test": {
         "tags": ['ida'],
-        "file": "test_??????.json",
+        "file": "test_000???.json",
         "insert_values": lambda row: (row["code"], row["name"], row.get("alpha2"), row.get("alpha3")),
-        "process_statements": ["delete from ida where iload = %s"]
+        "process_actions": ["delete from ida where iload = %s"]
     },
     "xlsx_ida_test": {
         "tags": ['ida'],
         "file": "test.xlsx",
-        "process_statements": ["delete from ida where iload = %s"]
+        "process_actions": ["delete from ida where iload = %s"]
     },
     "xlsx_skip_test": {
         "tags": ['ida', 'skip_header'],
         "file": "test.xlsx",
         "skip_header": 3,
-        "process_statements": ["delete from ida where iload = %s"]
+        "process_actions": ["delete from ida where iload = %s"]
     },
     "xlsx_test_test": {
         "file": "test.xlsx",
-        "insert_statement": "insert into dput_test (code, name, alpha2, alpha3) values (%s, %s, %s, %s)",
+        "insert_action": "insert into dput_test (code, name, alpha2, alpha3) values (%s, %s, %s, %s)",
         "insert_values": lambda row: (row[3], row[0], row[1], row[2]),
-        "process_statements": ["delete from ida where iload = %s"]
+        "process_actions": ["delete from ida where iload = %s"]
     },
     "xlsx_parts_test": {
         "tags": ['ida'],
-        "file": "test_??????.xlsx",
-        "process_statements": ["delete from ida where iload = %s"]
+        "file": "test_000???.xlsx",
+        "process_actions": ["delete from ida where iload = %s"]
     },
     "csv_test_error": {
         "tags": ['csv'],
         "file": "test.csv",
-        "insert_statement": "insert into dput_test (code, name, alpha2, alpha3) values (%s, %s, %s, %s)",
+        "insert_action": "insert into dput_test (code, name, alpha2, alpha3) values (%s, %s, %s, %s)",
         "insert_values": lambda row: (row[3], row[0], row[1], row[2]),
-        "process_statements": ["update ida set istat = 2, imess = 'Just testing' where iload = %s"]
+        "process_actions": ["update ida set istat = 2, imess = 'Just testing' where iload = %s"]
     },
     "nested_01_ida": {
         "tags": ['ida', 'json', 'nested'],
@@ -218,7 +218,7 @@ specs = {
         "insert_tables": [
             lambda row: [(n['code'], n['name'], n['alpha2'], n['alpha3']) for n in row['countries']] if row['countries'] else []
         ],
-        "process_statements": ["delete from ida where iload = %s"]
+        "process_actions": ["delete from ida where iload = %s"]
     },
     "nested_02_ida": {
         "tags": ['ida', 'json', 'nested'],
@@ -229,13 +229,13 @@ specs = {
             lambda row: [(r['en'], r['fr']) for r in row['en_fr']] if row['en_fr'] else [],
             lambda row: row['en_fr_ru']
         ],
-        "process_statements": ["delete from ida where iload = %s"]
+        "process_actions": ["delete from ida where iload = %s"]
     },
     "nested_01_test": {
         "tags": ['json', 'nested'],
         "file": "test_nested_01.json",
         "encoding": "UTF-8",
-        "insert_statement": "insert into test_region (region, contains) values (%s, %s)",
+        "insert_action": "insert into test_region (region, contains) values (%s, %s)",
         "insert_values": lambda row: (row['region'], len(row['countries'])),
         "insert_statements": [
             "insert into test_countries (region, code, name) values (%s, %s, %s)"
@@ -243,7 +243,14 @@ specs = {
         "insert_tables": [
             lambda row: [(row['region'], n['code'], n['name']) for n in row['countries']] if row['countries'] else []
         ],
-        "process_statements": ["delete from ida where iload = %s"]
+        "process_actions": ["delete from ida where iload = %s"]
+    },
+    "ff_ida_test": {
+        "tags": ['json', 'filter', 'flatten'],
+        "file": "test_nested_01.json",
+        "encoding": "UTF-8",
+        "insert_rows": lambda row: [(row['region'], n['code'], n['name']) for n in row['countries']] if row['countries'] else [],
+        "process_actions": ["delete from ida where iload = %s"]
     },
 }
 

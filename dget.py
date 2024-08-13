@@ -206,20 +206,20 @@ def rows_from_cursor(cur, first_row=None, fetch_rows=0):
     if first_row:
         yield jinja_row(first_row)
         rowcount += 1
-    while True:
-        how_many = \
-            ONE_FETCH_ROWS if fetch_rows == 0 else \
-            fetch_rows - 1 if fetch_rows < ONE_FETCH_ROWS else \
-            ONE_FETCH_ROWS if ONE_FETCH_ROWS < (fetch_rows - 1 - rowcount) else \
-            fetch_rows - 1 - ONE_FETCH_ROWS
-        rows = cur.fetchmany(how_many)
-        if not rows:
-            break
-        for row in rows:
-            yield jinja_row(row)
-            rowcount += 1
-        if fetch_rows and rowcount == fetch_rows:
-            break
+        while True:
+            how_many = \
+                ONE_FETCH_ROWS if fetch_rows == 0 else \
+                fetch_rows - 1 if fetch_rows <= ONE_FETCH_ROWS else \
+                ONE_FETCH_ROWS if ONE_FETCH_ROWS <= (fetch_rows - 1 - rowcount) else \
+                fetch_rows - 1 - ONE_FETCH_ROWS
+            rows = cur.fetchmany(how_many)
+            if not rows:
+                break
+            for row in rows:
+                yield jinja_row(row)
+                rowcount += 1
+            if fetch_rows and rowcount == fetch_rows:
+                break
     logger.info("Got %s rows.", rowcount)
 
 
