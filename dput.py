@@ -22,7 +22,8 @@ parser = argparse.ArgumentParser(
 )
 
 parser.add_argument("-a", "--arg", action="append", help="pass one or more arguments to SQL query")
-parser.add_argument("-f", "--force", action="store_true", help="load data files unconditionally")
+parser.add_argument("-d", "--delete", action="store_true", help="delete loaded data file(s)")
+parser.add_argument("-f", "--force", action="store_true", help="load data file(s) unconditionally")
 parser.add_argument("-t", "--trace", action="store_true", help="enable tracing")
 parser.add_argument("-u", "--user", action="store",
                     default=os.environ.get('USER', os.environ.get('USERNAME', 'DBANG')),
@@ -788,7 +789,8 @@ def process(spec_name, spec, input_file, stat):
                 wb.close()
 
             con.commit()
-            #os.remove(in_file)
+            if args.delete or spec.get('delete'):
+                os.remove(ifile)
             logger.info("%s", ifile)
 
         logger.info("Loaded %s rows with iload=%s", count - spec.get('skip_header', 0), iload)

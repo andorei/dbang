@@ -209,10 +209,10 @@ def process(spec_name, spec, stat):
                     if not stat[spec_name].get(file_name):
                         stat[spec_name][file_name] = {'mtime': 0, 'offset': 0}
                     if not stat_.get(file_name):
-                        stat_[file_name] = {'mtime': 0, 'offset': 0}
+                        stat_[file_name] = {'mtime': file_mtime, 'offset': stat[spec_name][file_name]['offset']}
                     if file_mtime > stat[spec_name][file_name]['mtime']:
                         recent_files.append(file_name)
-                        stat_[file_name]['mtime'] = file_mtime
+                        #stat_[file_name]['mtime'] = file_mtime
                 if len(all_files) == FILES_PER_MESSAGE:
                     break
 
