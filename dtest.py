@@ -52,6 +52,8 @@ sources = cfg.sources
 specs = cfg.specs
 
 SPEC = args.spec
+# filter out specs commented out with leading --
+specs = {k:v for k,v in specs.items() if not k.startswith('--')}
 if SPEC not in [*specs.keys(), 'all', *(tag for val in specs.values() if val.get('tags') for tag in val['tags'])]:
     sys.stderr.write(
         parser.format_usage() + \

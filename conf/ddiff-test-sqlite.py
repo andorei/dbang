@@ -48,6 +48,16 @@ specs = {
             "select 42 as answer from dual"
        ]
     },
+    "--commented-out-42": {
+        "tags": ['success', 'commented'],
+        "sources": ["ONE", "TWO"],
+        #"doc": "42 == 42"
+        "pk": ["answer"],
+        "queries": [
+            "select 42 as answer from dual",
+            "select 42 as answer from dual"
+       ]
+    },
     "diffs": {
         "tags": ['failure'],
         "op": "=",

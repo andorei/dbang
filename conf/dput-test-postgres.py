@@ -26,7 +26,7 @@ ENCODING = 'cp1251'
 #CSV_DIALECT = 'excel'
 # defaults to the dialect delimiter
 CSV_DELIMITER = ';'
-# number of loads presrves per entity defaults to 10
+# number of loads preserved per spec defaults to 10
 #PRESERVE_N_LOADS = 10
 SOURCE = "postgres-source"
 
@@ -37,41 +37,25 @@ pass
 
 specs = {
     "csv_ida_test": {
-        #
         # optional tags to use in command line instead of spec name
-        #
         "tags": ['csv', 'ida'],
-        #
         # database to load data into defaults to SOURCE (if set)
-        #
         #"source": SOURCE,
-        #
         # file to load; should be specified here or/and on command line
-        #
         "file": "test.csv",
-        #
-        # optional args go to ida.arg1 ... arg9
-        #
-        #"args": ['one', 'two', '3', '4', '5', '6', '7', '8', '9']
+        # optional args go to columns ida.arg1 ... arg9
+        #"args": ['one', 'two', '3', '4', '5', '6', '7', '8', '9'],
         #
         # the following parameters default to the global ones
-        #
         #"encoding": ENCODING,
         #"csv_dialect": CSV_DIALECT,
         #"csv_delimiter": CSV_DELIMITER,
         #"csv_quotechar": CSV_QUOTECHAR,
-        #
-        # how many lines to skip at the beginning of the file
-        #
-        #"skip_header": 0,
-        #
-        # how many last loads preserved in ida tables
-        #
+        #"skip_lines": 0,
         #"preserve_n_loads": PRESERVE_N_LOADS,
         #
         # optionally validate loaded data
-        #
-        "validate_statements": [
+        "validate_actions": [
             """
             update ida_lines set
                 istat = 2,
@@ -94,55 +78,47 @@ specs = {
                 and length(c3) != 3
             """,
         ],
-        #
         # optionally process validated data
-        #
-        "process_statements": [
+        "process_actions": [
             # just teardown
             "delete from ida where iload = %s"
         ]
     },
     "csv_skip_test": {
-        "tags": ['csv', 'ida', 'skip_header'],
+        "tags": ['csv', 'ida', 'skip_lines'],
         "file": "test.csv",
-        "skip_header": 1,
-        "process_statements": ["delete from ida where iload = %s"]
+        "skip_lines": 1,
+        "process_actions": "delete from ida where iload = %s"
     },
     "csv_proc_test": {
         "tags": ['csv'],
         "file": "test.csv",
-        "validate_procedures": ['validate_dput_test'],
-        "process_procedures": ['process_dput_test']
+        "validate_actions": 'call validate_dput_test(%s)',
+        "process_actions": 'call process_dput_test(%s)'
     },
     "csv_test_test": {
         "tags": ['csv'],
         "source": "postgres-source",
         "file": "test.csv",
         "args": ['one', 'two'],
-        #
         # statement to insert data into user defined table
-        #
-        "insert_statement": "insert into dput_test (code, name, alpha2, alpha3) values (%s, %s, %s, %s)",
-        #
-        # tuple of values to insert with the insert statements
-        #
-        "insert_values": lambda row: (row[3], row[0], row[1], row[2]),
-        "process_statements": ["delete from ida where iload = %s"]
+        "insert_actions": "insert into dput_test (code, name, alpha2, alpha3) values (%s, %s, %s, %s)",
+        # row to insert with the above insert statements
+        "insert_data": lambda row: (row[3], row[0], row[1], row[2]),
+        "process_actions": "delete from ida where iload = %s"
     },
     "csv_parts_test": {
         "tags": ['csv', 'ida'],
-        "file": "test_??????.csv",
-        "process_statements": ["delete from ida where iload = %s"]
+        "file": "test_000???.csv",
+        "process_actions": "delete from ida where iload = %s"
     },
     "json_ida_test": {
         "tags": ['ida'],
         "encoding": "UTF-8",
         "file": "test.json",
-        #
-        # tuple of values to insert into ida_lines table
-        #
-        "insert_values": lambda row: (row["code"], row["name"], row.get("alpha2"), row.get("alpha3")),
-        "validate_statements": [
+        # row to insert into ida_lines table
+        "insert_data": lambda row: (row["code"], row["name"], row.get("alpha2"), row.get("alpha3")),
+        "validate_actions": [
             """
             update ida_lines set
                 istat = 2,
@@ -165,84 +141,91 @@ specs = {
                 and length(c4) != 3
             """,
         ],
-        "process_statements": ["delete from ida where iload = %s"]
+        "process_actions": "delete from ida where iload = %s"
     },
     "json_test_test": {
         "encoding": "UTF-8",
         "file": "test.json",
-        "insert_statement": "insert into dput_test (code, name, alpha2, alpha3) values (%s, %s, %s, %s)",
-        "insert_values": lambda row: (row["code"], row["name"], row.get("alpha2"), row.get("alpha3")),
-        "process_statements": ["delete from ida where iload = %s"]
+        "insert_actions": "insert into dput_test (code, name, alpha2, alpha3) values (%s, %s, %s, %s)",
+        "insert_data": lambda row: (row["code"], row["name"], row["alpha2"], row["alpha3"]),
+        "process_actions": "delete from ida where iload = %s"
     },
     "json_parts_test": {
         "tags": ['ida'],
-        "file": "test_??????.json",
-        "insert_values": lambda row: (row["code"], row["name"], row.get("alpha2"), row.get("alpha3")),
-        "process_statements": ["delete from ida where iload = %s"]
+        "file": "test_000???.json",
+        "insert_data": lambda row: (row["code"], row["name"], row.get("alpha2"), row.get("alpha3")),
+        "process_actions": "delete from ida where iload = %s"
     },
     "xlsx_ida_test": {
         "tags": ['ida'],
         "file": "test.xlsx",
-        "process_statements": ["delete from ida where iload = %s"]
+        "process_actions": "delete from ida where iload = %s"
     },
     "xlsx_skip_test": {
-        "tags": ['ida', 'skip_header'],
+        "tags": ['ida', 'skip_lines'],
         "file": "test.xlsx",
-        "skip_header": 3,
-        "process_statements": ["delete from ida where iload = %s"]
+        "skip_lines": 3,
+        "process_actions": "delete from ida where iload = %s"
     },
     "xlsx_test_test": {
         "file": "test.xlsx",
-        "insert_statement": "insert into dput_test (code, name, alpha2, alpha3) values (%s, %s, %s, %s)",
-        "insert_values": lambda row: (row[3], row[0], row[1], row[2]),
-        "process_statements": ["delete from ida where iload = %s"]
+        "insert_actions": "insert into dput_test (code, name, alpha2, alpha3) values (%s, %s, %s, %s)",
+        "insert_data": lambda row: (row[3], row[0], row[1], row[2]),
+        "process_actions": "delete from ida where iload = %s"
     },
     "xlsx_parts_test": {
         "tags": ['ida'],
-        "file": "test_??????.xlsx",
-        "process_statements": ["delete from ida where iload = %s"]
+        "file": "test_000???.xlsx",
+        "process_actions": "delete from ida where iload = %s"
     },
     "csv_test_error": {
         "tags": ['csv'],
         "file": "test.csv",
-        "insert_statement": "insert into dput_test (code, name, alpha2, alpha3) values (%s, %s, %s, %s)",
-        "insert_values": lambda row: (row[3], row[0], row[1], row[2]),
-        "process_statements": ["update ida set istat = 2, imess = 'Just testing' where iload = %s"]
+        "insert_actions": "insert into dput_test (code, name, alpha2, alpha3) values (%s, %s, %s, %s)",
+        "insert_data": lambda row: (row[3], row[0], row[1], row[2]),
+        "process_actions": "update ida set istat = 2, imess = 'Just testing' where iload = %s"
     },
     "nested_01_ida": {
         "tags": ['ida', 'json', 'nested'],
         "file": "test_nested_01.json",
         "encoding": "UTF-8",
-        "insert_values": lambda row: (row['region'], len(row['countries'])),
-        "insert_tables": [
+        "insert_data": [
+            lambda row: (row['region'], len(row['countries'])),
             lambda row: [(n['code'], n['name'], n['alpha2'], n['alpha3']) for n in row['countries']] if row['countries'] else []
         ],
-        "process_statements": ["delete from ida where iload = %s"]
+        "process_actions": "delete from ida where iload = %s"
     },
     "nested_02_ida": {
         "tags": ['ida', 'json', 'nested'],
         "file": "test_nested_02.json",
         "encoding": "UTF-8",
-        "insert_values": lambda row: (row['category'], row['doc'], len(row['en_fr']), len(row['en_fr_ru'])),
-        "insert_tables": [
+        "insert_data": [
+            lambda row: (row['category'], row['doc'], len(row['en_fr']), len(row['en_fr_ru'])),
             lambda row: [(r['en'], r['fr']) for r in row['en_fr']] if row['en_fr'] else [],
             lambda row: row['en_fr_ru']
         ],
-        "process_statements": ["delete from ida where iload = %s"]
+        "process_actions": "delete from ida where iload = %s"
     },
     "nested_01_test": {
         "tags": ['json', 'nested'],
         "file": "test_nested_01.json",
         "encoding": "UTF-8",
-        "insert_statement": "insert into test_region (region, contains) values (%s, %s)",
-        "insert_values": lambda row: (row['region'], len(row['countries'])),
-        "insert_statements": [
+        "insert_actions": [
+            "insert into test_region (region, contains) values (%s, %s)",
             "insert into test_countries (region, code, name) values (%s, %s, %s)"
         ],
-        "insert_tables": [
+        "insert_data": [
+            lambda row: (row['region'], len(row['countries'])),
             lambda row: [(row['region'], n['code'], n['name']) for n in row['countries']] if row['countries'] else []
         ],
-        "process_statements": ["delete from ida where iload = %s"]
+        "process_actions": "delete from ida where iload = %s"
+    },
+    "ff_ida_test": {
+        "tags": ['json', 'filter', 'flatten'],
+        "file": "test_nested_01.json",
+        "encoding": "UTF-8",
+        "insert_data": lambda row: [(row['region'], n['code'], n['name']) for n in row['countries']] if row['countries'] else [],
+        "process_actions": "delete from ida where iload = %s"
     },
 }
 

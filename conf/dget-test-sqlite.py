@@ -107,6 +107,12 @@ specs = {
         "query": "select 'q' from dual",
         "csv": {"encoding": 'cp1251'}
     },
+    "--commented-out-1x1": {
+        "tags": ['commented'],
+        "file": "dget-1x1.csv",
+        "query": "select 'q' from dual",
+        "csv": {"encoding": 'cp1251'}
+    },
     "1xM-with-titles": {
         "file": "dget-1xM-with-titles.csv",
         "query": "select 'q', 'w', 'e', 'r', 't', 'y', 1, 2.0, current_date from dual",

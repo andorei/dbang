@@ -22,7 +22,8 @@ parser = argparse.ArgumentParser(
 )
 
 parser.add_argument("-a", "--arg", action="append", help="pass one or more arguments to SQL query")
-parser.add_argument("-f", "--force", action="store_true", help="load data files unconditionally")
+parser.add_argument("-d", "--delete", action="store_true", help="delete loaded data file(s)")
+parser.add_argument("-f", "--force", action="store_true", help="load data file(s) unconditionally")
 parser.add_argument("-t", "--trace", action="store_true", help="enable tracing")
 parser.add_argument("-u", "--user", action="store",
                     default=os.environ.get('USER', os.environ.get('USERNAME', 'DBANG')),
@@ -62,6 +63,8 @@ sources = cfg.sources
 specs = cfg.specs
 
 SPEC = args.spec
+# filter out specs commented out with leading --
+specs = {k:v for k,v in specs.items() if not k.startswith('--')}
 if SPEC not in [*specs.keys(), 'all', *(tag for val in specs.values() if val.get('tags') for tag in val['tags'])]:
     sys.stderr.write(
         parser.format_usage() + \
@@ -111,6 +114,14 @@ STAT_FILE = os.path.join(TEMP_DIR, f".{CFG_MODULE}.json")
 PRESERVE_N_LOADS = getattr(cfg, 'PRESERVE_N_LOADS', 10)
 PRESERVE_N_TRACES = getattr(cfg, 'PRESERVE_N_TRACES', 10)
 
+BATCH_SIZE = 1000
+
+
+# BEGIN DB SPECIFIC STUFF ######################################################
+#
+# To add support for a new database
+# 1) add database specific stuff to the following IDA_ objects and 
+# 2) import database driver in main() at the end of the script.
 
 IDA_SETUP = {
     "mysql": [
@@ -355,6 +366,246 @@ create table if not exists ida_lines (
 }
 
 
+def ida_insert_header_mysql(cur, user_id, filename, spec_name, load_args):
+    insert_stmt = \
+        """
+insert into ida (
+    iuser, ifile, entity, {cols}
+) values (
+    %s,%s,%s,{vals}
+)
+        """.format(
+            cols=','.join(f"arg{i+1}" for i in range(len(load_args))),
+            vals=','.join('%s' for i in range(len(load_args)))
+        )
+    logger.debug("-- insert header\n%s\n", insert_stmt.rstrip())
+    cur.execute(insert_stmt, (user_id, filename, spec_name, *load_args))
+    cur.execute("select last_insert_id()")
+    return cur.fetchone()[0]
+
+
+def ida_insert_header_oracle(cur, user_id, filename, spec_name, load_args):
+    insert_stmt = \
+        """
+insert into ida (
+    iload, iuser, ifile, entity, {cols}
+) values (
+    ida_seq.nextval,:iuser,:ifile,:entity,{vals}
+) returning iload into :iload
+        """.format(
+            cols=','.join(f"arg{i+1}" for i in range(len(load_args))),
+            vals=','.join(f":arg{i+1}" for i in range(len(load_args)))
+        )
+    logger.debug("-- insert header\n%s\n", insert_stmt.rstrip())
+    #iload = cur.var(source['lib'].NUMBER)
+    iload = cur.var(int)
+    cur.execute(insert_stmt, (user_id, filename, spec_name, *load_args, iload))
+    return iload.getvalue()[0]
+
+
+def ida_insert_header_postgres(cur, user_id, filename, spec_name, load_args):
+    insert_stmt = \
+        """
+insert into ida (
+    iuser, ifile, entity, {cols}
+) values (
+    %s,%s,%s,{vals}
+) returning iload
+        """.format(
+            cols=','.join(f"arg{i+1}" for i in range(len(load_args))),
+            vals=','.join('%s' for i in range(len(load_args)))
+        )
+    logger.debug("-- insert header\n%s\n", insert_stmt.rstrip())
+    cur.execute(insert_stmt, (user_id, filename, spec_name, *load_args))
+    return cur.fetchone()[0]
+
+
+def ida_insert_header_sqlite(cur, user_id, filename, spec_name, load_args):
+    insert_stmt = \
+        """
+insert into ida (
+    iuser, ifile, entity, {cols}
+) values (
+    ?,?,?,{vals}
+)
+        """.format(
+            cols=','.join(f"arg{i+1}" for i in range(len(load_args))),
+            vals=','.join('?' for i in range(len(load_args)))
+        )
+    logger.debug("-- insert header\n%s\n", insert_stmt.rstrip())
+    cur.execute(insert_stmt, (user_id, filename, spec_name, *load_args))
+    #since v3.35 use "returning iload" in insert and cur.fetchone()[0]
+    return cur.lastrowid
+
+IDA_INSERT_HEADER = {
+    "mysql": ida_insert_header_mysql,
+    "oracle": ida_insert_header_oracle,
+    "postgres": ida_insert_header_postgres,
+    "sqlite": ida_insert_header_sqlite,
+}
+
+IDA_INSERT_ROW = """
+insert into ida_lines (
+    iload, iline, {cols}
+) values (
+    {vals}
+)
+"""
+IDA_BUILD_INSERT_ROW = {
+    "mysql": \
+        lambda row:
+            IDA_INSERT_ROW.format(
+                cols=','.join(f"c{i+1}" for i in range(len(row) - 2)),
+                vals=','.join('%s' for i in range(len(row)))
+            ),
+    "oracle": \
+        lambda row:
+            IDA_INSERT_ROW.format(
+                cols=','.join(f"c{i+1}" for i in range(len(row) - 2)),
+                vals=','.join(f":{i+1}" for i in range(len(row)))
+            ),
+    "postgres": \
+        lambda row:
+            IDA_INSERT_ROW.format(
+                cols=','.join(f"c{i+1}" for i in range(len(row) - 2)),
+                vals=','.join('%s' for i in range(len(row)))
+            ),
+    "sqlite": \
+        lambda row:
+            IDA_INSERT_ROW.format(
+                cols=','.join(f"c{i+1}" for i in range(len(row) - 2)),
+                vals=','.join('?' for i in range(len(row)))
+            ),
+}
+
+IDA_INSERT_ROWS = """
+insert into ida_lines (
+    iload, iline, ntable, nline, {cols}
+) values (
+    {vals}
+)
+"""
+IDA_BUILD_INSERT_ROWS = {
+    "mysql": \
+        lambda row:
+            IDA_INSERT_ROWS.format(
+                cols=','.join(f"c{i+1}" for i in range(len(row) - 4)),
+                vals=','.join('%s' for i in range(len(row)))
+            ),
+    "oracle": \
+        lambda row:
+            IDA_INSERT_ROWS.format(
+                cols=','.join(f"c{i+1}" for i in range(len(row) - 4)),
+                vals=','.join(f":{i+1}" for i in range(len(row)))
+            ),
+    "postgres": \
+        lambda row:
+            IDA_INSERT_ROWS.format(
+                cols=','.join(f"c{i+1}" for i in range(len(row) - 4)),
+                vals=','.join('%s' for i in range(len(row)))
+            ),
+    "sqlite": \
+        lambda row:
+            IDA_INSERT_ROWS.format(
+                cols=','.join(f"c{i+1}" for i in range(len(row) - 4)),
+                vals=','.join('?' for i in range(len(row)))
+            ),
+}
+
+
+def ida_insert_many_rows_anydb(cur, stmt, rows):
+    cur.executemany(stmt, rows)
+
+IDA_INSERT_MANY_ROWS = {
+    "mysql": ida_insert_many_rows_anydb,
+    "oracle": ida_insert_many_rows_anydb,
+    "postgres": ida_insert_many_rows_anydb,
+    "sqlite": ida_insert_many_rows_anydb,
+}
+
+IDA_SELECT_ISTAT_2_COUNT = {
+    "mysql": """
+select count(*) from ida_lines where iload = %s and istat = 2
+    """,
+    "oracle": """
+select count(*) from ida_lines where iload = :iload and istat = 2
+    """,
+    "postgres": """
+select count(*) from ida_lines where iload = %s and istat = 2
+    """,
+    "sqlite": """
+select count(*) from ida_lines where iload = ? and istat = 2
+    """,
+}
+IDA_SELECT_ISTAT_IMESS = {
+    "mysql": """
+select istat, imess from ida where iload = %s
+    """,
+    "oracle": """
+select istat, imess from ida where iload = :iload
+    """,
+    "postgres": """
+select istat, imess from ida where iload = %s
+    """,
+    "sqlite": """
+select istat, imess from ida where iload = ?
+    """,
+}
+IDA_UPDATE_ISTAT = {
+    "mysql": """
+update ida set istat = %s where iload = %s
+    """,
+    "oracle": """
+update ida set istat = :istat where iload = :iload
+    """,
+    "postgres": """
+update ida set istat = %s where iload = %s
+    """,
+    "sqlite": """
+update ida set istat = ? where iload = ?
+    """,
+}
+IDA_DELETE_OLD_LOADS = {
+    "mysql": """
+delete from ida
+where entity = %s
+    and iload in (
+      select iload
+      from (
+          select iload, row_number() over (partition by entity order by idate desc) rn from ida
+          ) q
+      where rn > %s
+    )
+    """,
+    "oracle": """
+delete from ida
+where entity = :1
+    and iload in (
+      select iload
+      from (
+          select iload, row_number() over (partition by entity order by idate desc) rn from ida
+          ) q
+      where rn > :2
+    )
+    """,
+    "postgres": """
+delete from ida o
+where entity = %s
+    and iload not in (
+        select iload from ida where entity = o.entity order by idate desc limit %s
+    )
+    """,
+    "sqlite": """
+delete from ida as o
+where entity = ?
+    and iload not in (
+        select iload from ida where entity = o.entity order by idate desc limit ?
+    )
+    """,
+}
+# END DB SPECIFIC STUFF ########################################################
+
+
 def exec_sql(con, sql):
     """
     Execute sql statement(s) using connection con.
@@ -431,7 +682,7 @@ def process(spec_name, spec, input_file, stat):
         in_file = os.path.join(IN_DIR, in_file)
         #assert glob.glob(in_file), f"Input file not found: {input_file}"
         if not glob.glob(in_file):
-            logger.info("%s - No files to load: %s", spec_name, input_file)
+            logger.debug("%s - No files to load: %s", spec_name, input_file or spec.get('file', 'missing.file'))
             return return_code
 
     source = sources[spec['source']]
@@ -443,21 +694,42 @@ def process(spec_name, spec, input_file, stat):
     file = None
     wb = None
     try:
+        # normalize the spec
+        if isinstance(spec.get('insert_actions'), str):
+            spec['insert_actions'] = [spec['insert_actions']]
+        if spec.get('insert_data') and not isinstance(spec['insert_data'], (list, tuple)):
+            spec['insert_data'] = [spec['insert_data']]
+        if isinstance(spec.get('validate_actions'), str):
+            spec['validate_actions'] = [spec['validate_actions']]
+        if isinstance(spec.get('process_actions'), str):
+            spec['process_actions'] = [spec['process_actions']]
+
+        # validate the spec
         assert in_format in ('csv', 'xlsx', 'json'), \
             f"Bad format \"{in_format}\" in spec \"{spec_name}\""
-        assert in_format != 'json' or spec.get('insert_values'), \
-            f"Missing \"insert_values\" in spec \"{spec_name}\""
-        assert spec.get('insert_statement') is None or spec.get('insert_values'), \
-            f"Missing \"insert_values\" in spec \"{spec_name}\""
-        assert spec.get('insert_statements', []) == [] or \
-            len(spec.get('insert_tables', [])) == len(spec['insert_statements']), \
-            f"Missing or incomplete \"insert_tables\" in spec \"{spec_name}\""
-        assert spec.get('validate_procedures') is None or \
-            source['database'] in ('postgres', 'mysql', 'oracle'), \
-            f"Unexpected \"validate_procedures\" in spec \"{spec_name}\""
-        assert spec.get('process_procedures') is None or \
-            source['database'] in ('postgres', 'mysql', 'oracle'), \
-            f"Unexpected \"process_procedures\" in spec \"{spec_name}\""
+        assert sources.get(spec['source']), \
+            f"Source \"{spec['source']}\" not defined, spec \"{spec_name}\""
+        assert in_format != 'json' or spec.get('insert_data'), \
+            f"Missing \"insert_data\" in spec \"{spec_name}\""
+        assert all(isinstance(i, str) for i in spec.get('insert_actions', [])), \
+            f"Bad \"insert_actions\" in spec \"{spec_name}\""
+        assert all(isinstance(i, str) for i in spec.get('validate_actions', [])), \
+            f"Bad \"validate_actions\" in spec \"{spec_name}\""
+        assert all(isinstance(i, str) for i in spec.get('process_actions', [])), \
+            f"Bad \"process_actions\" in spec \"{spec_name}\""
+        assert spec.get('insert_actions') is None or \
+            len(spec.get('insert_actions', [])) == len(spec.get('insert_data', [])), \
+            f"\"insert_actions\" and \"insert_data\" do not match in spec \"{spec_name}\""
+        assert not args.arg or (
+            isinstance(args.arg, list) 
+            and isinstance(spec.get('bind_args'), dict) 
+            and len(args.arg) == len(spec['bind_args'])
+            ), f"Command line args and \"bind_args\" do not match, spec \"{spec_name}\""
+        load_args = args.arg or spec.get('args', [])
+        assert not load_args or 1 <= len(load_args) <= 9, \
+            f"Expected 1 to 9 load args, got {len(load_args)}, spec \"{spec_name}\""
+        assert all(a is not None for a in load_args), \
+            f"Expected specific load args, got None in spec \"{spec_name}\""
 
         # find files to load
         all_files = []
@@ -469,8 +741,6 @@ def process(spec_name, spec, input_file, stat):
             if file_mtime > stat[spec_name]['mtime']:
                 recent_files.append(file_name)
             latest_mtime = max(file_mtime, latest_mtime)
-        if recent_files:
-            stat[spec_name]['mtime'] = latest_mtime
 
         if (not args.force and not spec.get('force') and not recent_files) or not all_files:
             logger.info("%s - No files to load: %s", spec_name, input_file)
@@ -482,15 +752,15 @@ def process(spec_name, spec, input_file, stat):
             target_files = recent_files
 
         # 1) load data from file(s) into database
-        logger.info("Loading %s, %s", spec_name, in_file)
+        logger.debug("Loading %s, %s", spec_name, in_file)
 
         con = connection(spec['source'])
         cur = con.cursor()
         count = 0
-        batch_size = 1000
+        idata = []
+        icount = []
         iload = None
-        insert_stmt = None
-        nested_stmts = []
+        istmt = []
         for ifile in target_files:
 
             # open file for reading
@@ -510,315 +780,91 @@ def process(spec_name, spec, input_file, stat):
             elif in_format == 'json':
                 file = open(ifile, 'r', encoding=spec.get('encoding', ENCODING))
                 reader = json.load(file)
-                assert (
-                    isinstance(reader, list)
-                    ), f"Bad json file {ifile}"
+                assert isinstance(reader, list), f"Bad json file {ifile}"
 
             # load data from file
-            data = []
-            nested_data = []
             for row in reader:
 
                 # create header in table ida
-                if count == 0:
-                    load_args = spec.get('args', [])
-                    if args.arg:
-                        assert len(load_args) == len(args.arg), \
-                            f"Expected {len(load_args)} args; got {len(args.arg)}"
-                        assert 1 <= len(args.arg) <= 9, \
-                            f"Expected 1 to 9 args; got {len(args.arg)}"
-                        load_args = args.arg
-                    elif load_args:
-                        assert all(a is not None for a in load_args), \
-                            "Expected args values; got None"
-                    load_args = load_args or [None]
-
-                    if source['database'] == 'postgres':
-                        insert_stmt = \
-                            """
-                            insert into ida (
-                                iuser, ifile, entity, """ + ','.join(f"arg{i+1}" for i in range(len(load_args))) + """
-                            ) values (
-                                %s, %s, %s, """ + ','.join('%s' for i in range(len(load_args))) + """
-                            ) returning iload
-                            """
-                        logger.debug("-- insert header\n%s\n", insert_stmt.rstrip())
-                        cur.execute(insert_stmt, (USER_ID, filename, spec_name, *load_args))
-                        iload = cur.fetchone()[0]
-                        con.commit()
-                    elif source['database'] == 'mysql':
-                        insert_stmt = \
-                            """
-                            insert into ida (
-                                iuser, ifile, entity, """ + ','.join(f"arg{i+1}" for i in range(len(load_args))) + """
-                            ) values (
-                                %s, %s, %s, """ + ','.join('%s' for i in range(len(load_args))) + """
-                            )
-                            """
-                        logger.debug("-- insert header\n%s\n", insert_stmt.rstrip())
-                        cur.execute(insert_stmt, (USER_ID, filename, spec_name, *load_args))
-                        cur.execute("select last_insert_id()")
-                        iload = cur.fetchone()[0]
-                        con.commit()
-                    elif source['database'] == 'oracle':
-                        insert_stmt = \
-                            """
-                            insert into ida (
-                                iload, iuser, ifile, entity, """ + ','.join(f"arg{i+1}" for i in range(len(load_args))) + """
-                            ) values (
-                                ida_seq.nextval, :iuser, :ifile, :entity, """ + ','.join(f":arg{i+1}" for i in range(len(load_args))) + """
-                            ) returning iload into :iload
-                            """
-                        logger.debug("-- insert header\n%s\n", insert_stmt.rstrip())
-                        iload = cur.var(source['lib'].NUMBER)
-                        cur.execute(insert_stmt, (USER_ID, filename, spec_name, *load_args, iload))
-                        iload = iload.getvalue()[0]
-                        con.commit()
-                    elif source['database'] == 'sqlite':
-                        insert_stmt = \
-                            """
-                            insert into ida (
-                                iuser, ifile, entity, """ + ','.join(f"arg{i+1}" for i in range(len(load_args))) + """
-                            ) values (
-                                ?, ?, ?, """ + ','.join('?' for i in range(len(load_args))) + """
-                            )
-                            """
-                        logger.debug("-- insert header\n%s\n", insert_stmt.rstrip())
-                        cur.execute(insert_stmt, (USER_ID, filename, spec_name, *load_args))
-                        #since v3.35 use "returning iload" in insert and cur.fetchone()[0]
-                        iload = cur.lastrowid
-                        con.commit()
-                    insert_stmt = None
+                if not iload:
+                    iload = IDA_INSERT_HEADER[source['database']](cur, USER_ID, filename, spec_name, load_args or [None])
+                    con.commit()
 
                 count += 1
-                if count <= spec.get('skip_header', 0):
+                if count <= spec.get('skip_lines', 0):
                     continue
 
-                if in_format == 'csv':
-                    if spec.get('insert_statement'):
-                        data.append(spec['insert_values'](row))
-                    elif spec.get('insert_values'):
-                        data.append((iload, count, *(spec['insert_values'](row))))
-                    else:
-                        data.append((iload, count, *row))
-                elif in_format == 'xlsx':
-                    if spec.get('insert_statement'):
-                        data.append(spec['insert_values'](row))
-                    elif spec.get('insert_values'):
-                        data.append((iload, count, *(spec['insert_values'](row))))
-                    else:
-                        data.append((iload, count, *row))
-                elif in_format == 'json':
-                    if spec.get('insert_statement'):
-                        data.append(spec['insert_values'](row))
-                    else:
-                        data.append((iload, count, *(spec['insert_values'](row))))
-
-                # build line insert stmt
-                if not insert_stmt:
-                    if source['database'] == 'mysql':
-                        insert_stmt = spec.get('insert_statement') or \
-                            """
-                            insert into ida_lines (
-                                iload, iline, """ + ','.join(f"c{i+1}" for i in range(len(data[0]) - 2)) + """
-                            ) values (
-                                """ + ','.join('%s' for i in range(len(data[0]))) + """
-                            )
-                            """
-                    elif source['database'] == 'oracle':
-                        insert_stmt = spec.get('insert_statement') or \
-                            """
-                            insert into ida_lines (
-                                iload, iline, """ + ','.join(f"c{i+1}" for i in range(len(data[0]) - 2)) + """
-                            ) values (
-                                 """ + ','.join(f":{i+1}" for i in range(len(data[0]))) + """
-                            )
-                            """
-                    elif source['database'] == 'postgres':
-                        insert_stmt = spec.get('insert_statement') or \
-                            """
-                            insert into ida_lines (
-                                iload, iline, """ + ','.join(f"c{i+1}" for i in range(len(data[0]) - 2)) + """
-                            ) values (
-                                """ + ','.join('%s' for i in range(len(data[0]))) + """
-                            )
-                            """
-                    elif source['database'] == 'sqlite':
-                        insert_stmt = spec.get('insert_statement') or \
-                            """
-                            insert into ida_lines (
-                                iload, iline, """ + ','.join(f"c{i+1}" for i in range(len(data[0]) - 2)) + """
-                            ) values (
-                                """ + ','.join('?' for i in range(len(data[0]))) + """
-                            )
-                            """
-                    logger.debug("-- insert stmt\n%s\n", insert_stmt.rstrip())
-
-                # prepare current row's nested data
-                for n, nested_rows in enumerate(spec.get('insert_tables', [])):
-                    if in_format == 'csv':
-                        if spec.get('insert_statements') and spec['insert_statements'][n]:
-                            nested_data.append(spec['insert_tables'][n](row))
+                # prepare insert statements and data to insert
+                for n, func in enumerate(spec.get('insert_data', [None])):
+                    if len(idata) == n:
+                        idata.append([])
+                        istmt.append(spec['insert_actions'][n] if spec.get('insert_actions') else None)
+                        if istmt[-1]:
+                            logger.debug("-- stmt #%s\n\n%s\n", n, istmt[-1].strip())
+                        icount.append(0)
+                    insert_data = \
+                        func(row) if func and func.__code__.co_argcount == 1 else \
+                        func(iload, count, row) if func and func.__code__.co_argcount == 3 else \
+                        row
+                    if not insert_data:
+                        # insert no row
+                        pass
+                    elif isinstance(insert_data, (list, tuple)) and not isinstance(insert_data[0], (list, tuple)):
+                        # insert a row
+                        if spec.get('insert_actions') and spec['insert_actions'][n]:
+                            idata[n].append(insert_data)
                         else:
-                            nested_data.append(
-                                [
-                                    (iload, count, n+1, nr+1, *nrow) \
-                                    for nr, nrow in enumerate(spec['insert_tables'][n](row))
-                                ]
-                            )
-                    elif in_format == 'xlsx':
-                        if spec.get('insert_statements') and spec['insert_statements'][n]:
-                            nested_data.append(spec['insert_tables'][n](row))
+                            idata[n].append((iload, count, *insert_data))
+                            if not istmt[n] and idata[n][-1]:
+                                istmt[n] = IDA_BUILD_INSERT_ROW[source['database']](idata[n][-1])
+                                logger.debug("-- stmt #%s\n\n%s\n", n, istmt[n].strip())
+                    elif isinstance(insert_data, (list, tuple)) and isinstance(insert_data[0], (list, tuple)):
+                        # insert many rows
+                        if spec.get('insert_actions') and spec['insert_actions'][n]:
+                            idata[n].extend(insert_data)
                         else:
-                            nested_data.append(
-                                [
-                                    (iload, count, n+1, nr+1, *nrow) \
-                                    for nr, nrow in enumerate(spec['insert_tables'][n](row))
-                                ]
-                            )
-                    elif in_format == 'json':
-                        if spec.get('insert_statements') and spec['insert_statements'][n]:
-                            nested_data.append(spec['insert_tables'][n](row))
-                        else:
-                            nested_data.append(
-                                [
-                                    (iload, count, n+1, nr+1, *nrow) \
-                                    for nr, nrow in enumerate(spec['insert_tables'][n](row))
-                                ]
-                            )
+                            idata[n].extend([(iload, count, n, i+1, *irow) for i, irow in enumerate(insert_data)])
+                            if not istmt[n] and idata[n][-1]:
+                                istmt[n] = IDA_BUILD_INSERT_ROWS[source['database']](idata[n][-1])
+                                logger.debug("-- stmt #%s\n\n%s\n", n, istmt[n].strip())
 
-                # build nested insert stmts as soon as we get nested data
-                for n, nested_rows in enumerate(spec.get('insert_tables', [])):
-                    if len(nested_stmts) == n:
-                        nested_stmts.append(None)
-                    if source['database'] == 'mysql':
-                        if not nested_stmts[n] and nested_data[n]:
-                            nested_stmts[n] = \
-                                spec['insert_statements'][n] if spec.get('insert_statements') else \
-                                """
-                                insert into ida_lines (
-                                    iload, iline, ntable, nline, """ + ','.join(f"c{i+1}" for i in range(len(nested_data[n][0]) - 4)) + """
-                                ) values (
-                                    """ + ','.join('%s' for i in range(len(nested_data[n][0]))) + """
-                                )
-                                """
-                            logger.debug("-- nested stmt #%s\n%s\n", n+1, nested_stmts[n].rstrip())
-                    elif source['database'] == 'oracle':
-                        if not nested_stmts[n] and nested_data[n]:
-                            nested_stmts[n] = \
-                                spec['insert_statements'][n] if spec.get('insert_statements') else \
-                                """
-                                insert into ida_lines (
-                                    iload, iline, ntable, nline, """ + ','.join(f"c{i+1}" for i in range(len(nested_data[n][0]) - 4)) + """
-                                ) values (
-                                     """ + ','.join(f":{i+1}" for i in range(len(nested_data[n][0]))) + """
-                                )
-                                """
-                            logger.debug("-- nested stmt #%s\n%s\n", n+1, nested_stmts[n].rstrip())
-                    elif source['database'] == 'postgres':
-                        if not nested_stmts[n] and nested_data[n]:
-                            nested_stmts[n] = \
-                                spec['insert_statements'][n] if spec.get('insert_statements') else \
-                                """
-                                insert into ida_lines (
-                                    iload, iline, ntable, nline, """ + ','.join(f"c{i+1}" for i in range(len(nested_data[n][0]) - 4)) + """
-                                ) values (
-                                    """ + ','.join('%s' for i in range(len(nested_data[n][0]))) + """
-                                )
-                                """
-                            logger.debug("-- nested stmt #%s\n%s\n", n+1, nested_stmts[n].rstrip())
-                    elif source['database'] == 'sqlite':
-                        if not nested_stmts[n] and nested_data[n]:
-                            nested_stmts[n] = \
-                                spec['insert_statements'][n] if spec.get('insert_statements') else \
-                                """
-                                insert into ida_lines (
-                                    iload, iline, ntable, nline, """ + ','.join(f"c{i+1}" for i in range(len(nested_data[n][0]) - 4)) + """
-                                ) values (
-                                    """ + ','.join('?' for i in range(len(nested_data[n][0]))) + """
-                                )
-                                """
-                            logger.debug("-- nested stmt #%s\n%s\n", n+1, nested_stmts[n].rstrip())
-
-                # insert current row's nested data if any
-                for n, nested_rows in enumerate(nested_data):
-                    if nested_rows:
-                        if source['database'] == 'postgres':
-                            cur.executemany(nested_stmts[n], nested_rows)
-                        elif source['database'] == 'mysql':
-                            cur.executemany(nested_stmts[n], nested_rows)
-                        elif source['database'] == 'oracle':
-                            cur.executemany(nested_stmts[n], nested_rows)
-                        elif source['database'] == 'sqlite':
-                            cur.executemany(nested_stmts[n], nested_rows)
-                nested_data.clear()
-
-                # insert top-level rows
-                if len(data) % batch_size == 0:
-                    if source['database'] == 'postgres':
-                        cur.executemany(insert_stmt, data)
-                    elif source['database'] == 'mysql':
-                        cur.executemany(insert_stmt, data)
-                    elif source['database'] == 'oracle':
-                        cur.executemany(insert_stmt, data)
-                    elif source['database'] == 'sqlite':
-                        cur.executemany(insert_stmt, data)
-                    data.clear()
-
-            if data:
-                if source['database'] == 'postgres':
-                    cur.executemany(insert_stmt, data)
-                elif source['database'] == 'mysql':
-                    cur.executemany(insert_stmt, data)
-                elif source['database'] == 'oracle':
-                    cur.executemany(insert_stmt, data)
-                elif source['database'] == 'sqlite':
-                    cur.executemany(insert_stmt, data)
+                # insert prepared data
+                for n in range(len(idata)):
+                    if len(idata[n]) >= BATCH_SIZE:
+                        IDA_INSERT_MANY_ROWS[source['database']](cur, istmt[n], idata[n])
+                        icount[n] += len(idata[n])
+                        idata[n].clear()
 
             if in_format in ('csv', 'json'):
                 file.close()
             elif in_format == 'xlsx':
                 wb.close()
 
-            con.commit()
-            #os.remove(in_file)
+            if args.delete or spec.get('delete'):
+                os.remove(ifile)
             logger.info("%s", ifile)
 
-        logger.info("Loaded %s rows with iload=%s", count - spec.get('skip_header', 0), iload)
+        # insert the rest of prepared data
+        for n in range(len(idata)):
+            if idata[n]:
+                IDA_INSERT_MANY_ROWS[source['database']](cur, istmt[n], idata[n])
+                icount[n] += len(idata[n])
+        con.commit()
+        logger.info("Loaded %s of %s rows with iload=%s", str(icount).strip('[]'), count - spec.get('skip_lines', 0), iload)
 
         # 2) validate loaded data
 
         err_count = 0
-        if spec.get('validate_statements') or spec.get('validate_procedures'):
+        if spec.get('validate_actions'):
 
             logger.debug('-- validate')
-            for stmt in spec.get('validate_statements', []):
-                logger.debug('\n%s\n', stmt.rstrip())
+            for stmt in spec['validate_actions']:
+                logger.debug('\n\n%s\n', stmt.strip())
                 cur.execute(stmt, (iload,))
-
-            for proc in spec.get('validate_procedures', []):
-                logger.debug('\n%s\n', proc.rstrip())
-                if source['database'] == 'postgres':
-                    cur.execute(f"call {proc}(%s)", (iload,))
-                else:
-                    cur.callproc(proc, (iload,))
-
             con.commit()
 
-            if spec.get('insert_statement') is None:
-                #
-                # follow built-in ida protocol
-                # if ida_lines rows have errors then update load status (ida.isat)
-                #
-                if source['database'] == 'postgres':
-                    query = "select count(*) from ida_lines where iload = %s and istat = 2"
-                elif source['database'] == 'mysql':
-                    query = "select count(*) from ida_lines where iload = %s and istat = 2"
-                elif source['database'] == 'oracle':
-                    query = "select count(*) from ida_lines where iload = :1 and istat = 2"
-                elif  source['database'] == 'sqlite':
-                    query = "select count(*) from ida_lines where iload = ? and istat = 2"
-                cur.execute(query, (iload,))
+            if spec.get('insert_actions') is None:
+                cur.execute(IDA_SELECT_ISTAT_2_COUNT[source['database']], (iload,))
                 err_count = cur.fetchone()
                 err_count = err_count[0] if err_count else 0
                 if err_count > 0:
@@ -826,15 +872,7 @@ def process(spec_name, spec, input_file, stat):
                 else:
                     logger.info("Validation succeded")
             else:
-                if source['database'] == 'postgres':
-                    query = "select istat, ierrm from ida where iload = %s"
-                elif source['database'] == 'mysql':
-                    query = "select istat, ierrm from ida where iload = %s"
-                elif source['database'] == 'oracle':
-                    query = "select istat, ierrm from ida where iload = :iload"
-                elif  source['database'] == 'sqlite':
-                    query = "select istat, ierrm from ida where iload = ?"
-                cur.execute(query, (iload,))
+                cur.execute(IDA_SELECT_ISTAT_IMESS[source['database']], (iload,))
                 row = cur.fetchone()
                 err_count = 1 if row and row[0] == 2 else 0
                 if err_count > 0:
@@ -844,36 +882,16 @@ def process(spec_name, spec, input_file, stat):
 
         # 3) process loaded data
 
-        if err_count == 0 and (spec.get('process_statements') or spec.get('process_procedures')):
+        if err_count == 0 and spec.get('process_actions'):
 
             logger.debug('-- process')
-            for stmt in spec.get('process_statements', []):
-                logger.debug('\n%s\n', stmt.rstrip())
+            for stmt in spec['process_actions']:
+                logger.debug('\n\n%s\n', stmt.strip())
                 cur.execute(stmt, (iload,))
-
-            for proc in spec.get('process_procedures', []):
-                logger.debug('\n%s\n', proc.rstrip())
-                if source['database'] == 'postgres':
-                    cur.execute(f"call {proc}(%s)", (iload,))
-                else:
-                    cur.callproc(proc, (iload,))
-
             con.commit()
 
-            if spec.get('insert_statement') is None:
-                #
-                # follow built-in ida protocol
-                # if ida_lines rows have errors then update load status (ida.isat)
-                #
-                if source['database'] == 'postgres':
-                    query = "select count(*) from ida_lines where iload = %s and istat = 2"
-                elif source['database'] == 'mysql':
-                    query = "select count(*) from ida_lines where iload = %s and istat = 2"
-                elif source['database'] == 'oracle':
-                    query = "select count(*) from ida_lines where iload = :iload and istat = 2"
-                elif  source['database'] == 'sqlite':
-                    query = "select count(*) from ida_lines where iload = ? and istat = 2"
-                cur.execute(query, (iload,))
+            if spec.get('insert_actions') is None:
+                cur.execute(IDA_SELECT_ISTAT_2_COUNT[source['database']], (iload,))
                 err_count = cur.fetchone()
                 err_count = err_count[0] if err_count else 0
                 if err_count > 0:
@@ -881,15 +899,7 @@ def process(spec_name, spec, input_file, stat):
                 else:
                     logger.info("Processing succeeded")
             else:
-                if source['database'] == 'postgres':
-                    query = "select istat, imess from ida where iload = %s"
-                elif source['database'] == 'mysql':
-                    query = "select istat, imess from ida where iload = %s"
-                elif source['database'] == 'oracle':
-                    query = "select istat, imess from ida where iload = :iload"
-                elif  source['database'] == 'sqlite':
-                    query = "select istat, imess from ida where iload = ?"
-                cur.execute(query, (iload,))
+                cur.execute(IDA_SELECT_ISTAT_IMESS[source['database']], (iload,))
                 row = cur.fetchone()
                 err_count = 1 if row and row[0] == 2 else 0
                 if err_count > 0:
@@ -898,69 +908,21 @@ def process(spec_name, spec, input_file, stat):
                     logger.info("Processing succeeded")
 
         # mark as failed or succeeded
-
-        if source['database'] == 'postgres':
-            query = f"update ida set istat = {2 if err_count > 0 else 1} where iload = %s"
-        elif source['database'] == 'mysql':
-            query = f"update ida set istat = {2 if err_count > 0 else 1} where iload = %s"
-        elif source['database'] == 'oracle':
-            query = f"update ida set istat = {2 if err_count > 0 else 1} where iload = :iload"
-        elif  source['database'] == 'sqlite':
-            query = f"update ida set istat = {2 if err_count > 0 else 1} where iload = ?"
-        cur.execute(query, (iload,))
+        cur.execute(IDA_UPDATE_ISTAT[source['database']], (2 if err_count > 0 else 1, iload,))
         con.commit()
 
-        #
-        # remove old data from ida preserving only last N loads
-        #
-        if source['database'] == 'mysql':
-            query = """
-                delete from ida
-                where entity = %s
-                    and iload in (
-                      select iload
-                      from (
-                          select iload, row_number() over (partition by entity order by idate desc) rn from ida
-                          ) q
-                      where rn > %s
-                    )
-                """
-        elif source['database'] == 'oracle':
-            query = """
-                delete from ida
-                where entity = :1
-                    and iload in (
-                      select iload
-                      from (
-                          select iload, row_number() over (partition by entity order by idate desc) rn from ida
-                          ) q
-                      where rn > :2
-                    )
-                """
-        elif source['database'] == 'postgres':
-            query = """
-                delete from ida o
-                where entity = %s
-                    and iload not in (
-                        select iload from ida where entity = o.entity order by idate desc limit %s
-                    )
-                """
-        elif  source['database'] == 'sqlite':
-            query = """
-                delete from ida as o
-                where entity = ?
-                    and iload not in (
-                        select iload from ida where entity = o.entity order by idate desc limit ?
-                    )
-                """
-        logger.debug('-- keep ida fit')
-        logger.debug('\n%s\n', query.rstrip())
+        # delete old loads from ida preserving only last N loads
+        #logger.debug('-- keep ida fit')
+        #logger.debug('\n\n%s\n', IDA_DELETE_OLD_LOADS[source['database']].strip())
         cur.execute(
-            query,
+            IDA_DELETE_OLD_LOADS[source['database']],
             (spec_name, spec.get('preserve_n_loads', PRESERVE_N_LOADS))
         )
         con.commit()
 
+        # set stat data no earlier than all files are successfully processed
+        if recent_files:
+            stat[spec_name]['mtime'] = latest_mtime
     except:
         logger.exception('EXCEPT')
         if sources[spec['source']].get('con'):

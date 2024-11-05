@@ -154,6 +154,15 @@ specs = {
             "body": "Hello world!\n",
         }
     },
+    "--commented out.text": {
+        "tags": ['text', 'commented'],
+        "force": True,
+        "mail": {
+            "to": [MAIL_TO],
+            "subject": "{dbang} commented out",
+            "body": "Hello world!\n",
+        }
+    },
     "helloworld.html": {
         "tags": ['html'],
         "force": True,
@@ -405,7 +414,7 @@ specs = {
         "tags": ['clippings', 'logs', 'html'],
         "mail": {
             "to": [MAIL_TO],
-            "subject": "{dbang} clippings.html",
+            "subject": "{dbang} logged errors.html",
             "body": [
                 {
                     "file": os.path.join(os.path.dirname(__file__), '..', 'log', '????-??-??_*.log'),

@@ -33,12 +33,10 @@ parser.add_argument("-a", "--arg", action="append", help="pass one or more argum
 parser.add_argument("-u", "--user", action="store", 
                     default=os.environ.get('USER', os.environ.get('USERNAME', 'DBANG')), 
                     help="set username")
-parser.add_argument("-o", "--output", action="store", 
-                    choices=['csv', 'json', 'html', 'xlsx'], 
-                    help="override output format from spec")
 parser.add_argument("-t", "--trace", action="store_true", help="enable tracing")
 parser.add_argument("cfg_file", help="cfg-file name")
 parser.add_argument("spec", nargs="?", default="all", help="spec name, defaults to \"all\"")
+parser.add_argument("out_file", nargs="?", default=None, help="output file name")
 
 args = parser.parse_args()
 
@@ -81,6 +79,8 @@ sources = cfg.sources
 specs = cfg.specs
 
 SPEC = args.spec
+# filter out specs commented out with leading --
+specs = {k:v for k,v in specs.items() if not k.startswith('--')}
 if SPEC not in [*specs.keys(), 'all', *(tag for val in specs.values() if val.get('tags') for tag in val['tags'])]:
     sys.stderr.write(
         parser.format_usage() + \
@@ -206,20 +206,20 @@ def rows_from_cursor(cur, first_row=None, fetch_rows=0):
     if first_row:
         yield jinja_row(first_row)
         rowcount += 1
-    while True:
-        how_many = \
-            ONE_FETCH_ROWS if fetch_rows == 0 else \
-            fetch_rows - 1 if fetch_rows < ONE_FETCH_ROWS else \
-            ONE_FETCH_ROWS if ONE_FETCH_ROWS < (fetch_rows - 1 - rowcount) else \
-            fetch_rows - 1 - ONE_FETCH_ROWS
-        rows = cur.fetchmany(how_many)
-        if not rows:
-            break
-        for row in rows:
-            yield jinja_row(row)
-            rowcount += 1
-        if fetch_rows and rowcount == fetch_rows:
-            break
+        while True:
+            how_many = \
+                ONE_FETCH_ROWS if fetch_rows == 0 else \
+                fetch_rows - 1 if fetch_rows <= ONE_FETCH_ROWS else \
+                ONE_FETCH_ROWS if ONE_FETCH_ROWS <= (fetch_rows - 1 - rowcount) else \
+                fetch_rows - 1 - ONE_FETCH_ROWS
+            rows = cur.fetchmany(how_many)
+            if not rows:
+                break
+            for row in rows:
+                yield jinja_row(row)
+                rowcount += 1
+            if fetch_rows and rowcount == fetch_rows:
+                break
     logger.info("Got %s rows.", rowcount)
 
 
@@ -248,38 +248,30 @@ def trace(ts, status):
     logger.debug("trace %s", this_trace + str(status))
 
 
-def process(run, spec_name, spec):
+def process(run, spec_name, spec, out_file):
     """
     Process spec from config-file.
     """
     return_code = 0
     con = None
     try:
-        out_base, out_format = spec["file"].rsplit('.', 1)
-        out_format = args.output if args.output else out_format
-        assert (
-            isinstance(spec, dict)
-            and (
-                out_format in ('html', 'csv', 'xlsx', 'json')
-                or (
-                    isinstance(spec['template'], str)
-                    and spec['template'].endswith(".jinja")
-                    and os.path.isfile(os.path.join(CFG_DIR, spec['template']))
-                )
-            )
-            and {*spec.keys()} >= {'source', 'query'}
-            and isinstance(spec['source'], str)
-            and isinstance(spec['query'], str)
-            and sources.get(spec['source'])
-            and (
-                args.arg is None
-                or (
-                    isinstance(args.arg, list) 
-                    and isinstance(spec.get('bind_args'), dict) 
-                    and len(args.arg) == len(spec['bind_args'])
-                )
-            )
-            ), f"Bad spec {spec_name}"
+        assert out_file or spec.get('file'), \
+            f"Output file not specified, spec \"{spec_name}\""
+        out_base, out_format = (out_file or spec.get('file')).rsplit('.', 1)
+        assert out_format in ('html', 'csv', 'xlsx', 'json') or (
+            isinstance(spec['template'], str) and
+            spec['template'].endswith(".jinja") and
+            os.path.isfile(os.path.join(CFG_DIR, spec['template']))
+            ), f"Bad format \"{in_format}\" or missing \"template\" in spec \"{spec_name}\""
+        assert sources.get(spec['source']), \
+            f"Source \"{spec['source']}\" not defined, spec \"{spec_name}\""
+        assert 'query' in spec.keys() and isinstance(spec['query'], str), \
+            f"Missing or bad \"query\" in spec \"{spec_name}\""
+        assert args.arg is None or (
+            isinstance(args.arg, list) 
+            and isinstance(spec.get('bind_args'), dict) 
+            and len(args.arg) == len(spec['bind_args'])
+            ), f"Command line args and \"bind_args\" do not match, spec {spec_name}"
 
         logger.info("%s; DB = %s", spec_name, spec['source'])
 
@@ -307,8 +299,6 @@ def process(run, spec_name, spec):
         query = spec['query']
         qargs = spec.get('bind_args', {})
         if args.arg:
-            assert len(qargs) == len(args.arg), \
-                f"Expected {len(qargs)} args; got {len(args.arg)}"
             qargs = {k: v for k,v in zip(qargs.keys(), [type(v)(a) for v, a in zip(qargs.values(), args.arg)])}
         logger.debug('\n\n%s\n\n%s\n', query.strip(), str(qargs))
         cur.execute(query, qargs)
@@ -360,6 +350,7 @@ def process(run, spec_name, spec):
                     file.write(
                         template.render(
                             run=run,
+                            spec_name=spec_name,
                             title=spec['html'].get('title', spec_name) if out_format == 'html' and spec.get('html') else spec_name,
                             titles=spec['titles'],
                             source=spec['source'],
@@ -544,7 +535,7 @@ def main():
                     src['lib'] = sqlite3
                 else:
                     src['lib'] = None
-            error_count += process(run, spec_name, spec)
+            error_count += process(run, spec_name, spec, args.out_file)
 
     for src in sources.values():
         if src.get('con') is not None:

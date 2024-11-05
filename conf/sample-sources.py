@@ -6,7 +6,7 @@ sources = {
     #
     "sqlite-source": {
         "database": "sqlite",
-        "con_string": os.path.join(os.environ.get('HOMEPATH', os.environ.get('HOME')), '.dbang', 'dbang.db')
+        "con_string": os.path.join(os.path.expanduser('~'), '.dbang', 'dbang.db')
     },
     "postgres-source": {
         "database": "postgres",
