@@ -55,7 +55,12 @@ specs = {
         #"skip_lines": 0,
         #"preserve_n_loads": PRESERVE_N_LOADS,
         # optionally validate loaded data
+<<<<<<< HEAD
         "validate_actions": [
+=======
+        #
+        "validation_actions": [
+>>>>>>> 2c0015bc478159487a94de627f47bc7997a032a0
             """
             update ida_lines set
                 istat = 2,
@@ -79,6 +84,10 @@ specs = {
             """,
         ],
         # optionally process validated data
+<<<<<<< HEAD
+=======
+        #
+>>>>>>> 2c0015bc478159487a94de627f47bc7997a032a0
         "process_actions": [
             # just teardown
             "delete from ida where iload = ?"
@@ -87,6 +96,10 @@ specs = {
     "--commented_out": {
         "tags": ['csv', 'ida', 'commented'],
         "file": "test.csv",
+<<<<<<< HEAD
+=======
+        "skip_header": 1,
+>>>>>>> 2c0015bc478159487a94de627f47bc7997a032a0
         "process_actions": ["delete from ida where iload = ?"]
     },
     "csv_skip_test": {
@@ -99,7 +112,11 @@ specs = {
     #"csv_proc_test": {
     #    "tags": ['csv'],
     #    "file": "test.csv",
+<<<<<<< HEAD
     #    "validate_actions": ['call validate_dput_test'],
+=======
+    #    "validation_actions": ['call validate_dput_test'],
+>>>>>>> 2c0015bc478159487a94de627f47bc7997a032a0
     #    "process_actions": ['call process_dput_test']
     #},
     "csv_test_test": {
@@ -108,10 +125,20 @@ specs = {
         "file": "test.csv",
         "args": ['one', 'two'],
         # statement to insert data into user defined table
+<<<<<<< HEAD
         "insert_actions": "insert into dput_test (code, name, alpha2, alpha3) values (?, ?, ?, ?)",
         # row to insert with the above insert statement
         "insert_data": lambda row: (row[3], row[0], row[1], row[2]),
         "process_actions": "delete from ida where iload = ?"
+=======
+        #
+        "insert_action": "insert into dput_test (code, name, alpha2, alpha3) values (?, ?, ?, ?)",
+        #
+        # tuple of values to insert with the insert statement
+        #
+        "insert_values": lambda row: (row[3], row[0], row[1], row[2]),
+        "process_actions": ["delete from ida where iload = ?"]
+>>>>>>> 2c0015bc478159487a94de627f47bc7997a032a0
     },
     "csv_parts_test": {
         "tags": ['csv', 'ida'],
@@ -122,9 +149,17 @@ specs = {
         "tags": ['ida'],
         "encoding": "UTF-8",
         "file": "test.json",
+<<<<<<< HEAD
         # row to insert into ida_lines table
         "insert_data": lambda row: (row["code"], row["name"], row.get("alpha2"), row.get("alpha3")),
         "validate_actions": [
+=======
+        #
+        # tuple of values to insert into ida_lines table
+        #
+        "insert_values": lambda row: (row["code"], row["name"], row.get("alpha2"), row.get("alpha3")),
+        "validation_actions": [
+>>>>>>> 2c0015bc478159487a94de627f47bc7997a032a0
             """
             update ida_lines set
                 istat = 2,
@@ -147,29 +182,48 @@ specs = {
                 and length(c4) != 3
             """,
         ],
+<<<<<<< HEAD
         "process_actions": "delete from ida where iload = ?"
+=======
+        "process_actions": ["delete from ida where iload = ?"]
+>>>>>>> 2c0015bc478159487a94de627f47bc7997a032a0
     },
     "json_test_test": {
         "encoding": "UTF-8",
         "file": "test.json",
+<<<<<<< HEAD
         "insert_actions": "insert into dput_test (code, name, alpha2, alpha3) values (?, ?, ?, ?)",
         "insert_data": lambda row: (row["code"], row["name"], row["alpha2"], row["alpha3"]),
         "process_actions": "delete from ida where iload = ?"
+=======
+        "insert_action": "insert into dput_test (code, name, alpha2, alpha3) values (?, ?, ?, ?)",
+        "insert_values": lambda row: (row["code"], row["name"], row["alpha2"], row["alpha3"]),
+        "process_actions": ["delete from ida where iload = ?"]
+>>>>>>> 2c0015bc478159487a94de627f47bc7997a032a0
     },
     "json_parts_test": {
         "tags": ['ida'],
         "file": "test_000???.json",
+<<<<<<< HEAD
         "insert_data": lambda row: (row["code"], row["name"], row.get("alpha2"), row.get("alpha3")),
+=======
+        "insert_values": lambda row: (row["code"], row["name"], row.get("alpha2"), row.get("alpha3")),
+>>>>>>> 2c0015bc478159487a94de627f47bc7997a032a0
         "process_actions": ["delete from ida where iload = ?"]
     },
     "xlsx_ida_test": {
         "tags": ['ida'],
         "file": "test.xlsx",
+<<<<<<< HEAD
         "process_actions": "delete from ida where iload = ?"
+=======
+        "process_actions": ["delete from ida where iload = ?"]
+>>>>>>> 2c0015bc478159487a94de627f47bc7997a032a0
     },
     "xlsx_skip_test": {
         "tags": ['ida', 'skip_lines'],
         "file": "test.xlsx",
+<<<<<<< HEAD
         "skip_lines": 3,
         "process_actions": "delete from ida where iload = ?"
     },
@@ -178,44 +232,82 @@ specs = {
         "insert_actions": "insert into dput_test (code, name, alpha2, alpha3) values (?, ?, ?, ?)",
         "insert_data": lambda row: (row[3], row[0], row[1], row[2]),
         "process_actions": "delete from ida where iload = ?"
+=======
+        "skip_header": 3,
+        "process_actions": ["delete from ida where iload = ?"]
+    },
+    "xlsx_test_test": {
+        "file": "test.xlsx",
+        "insert_action": "insert into dput_test (code, name, alpha2, alpha3) values (?, ?, ?, ?)",
+        "insert_values": lambda row: (row[3], row[0], row[1], row[2]),
+        "process_actions": ["delete from ida where iload = ?"]
+>>>>>>> 2c0015bc478159487a94de627f47bc7997a032a0
     },
     "xlsx_parts_test": {
         "tags": ['ida'],
         "file": "test_000???.xlsx",
+<<<<<<< HEAD
         "process_actions": "delete from ida where iload = ?"
+=======
+        "process_actions": ["delete from ida where iload = ?"]
+>>>>>>> 2c0015bc478159487a94de627f47bc7997a032a0
     },
     "csv_test_error": {
         "tags": ['csv'],
         "file": "test.csv",
+<<<<<<< HEAD
         "insert_actions": "insert into dput_test (code, name, alpha2, alpha3) values (?, ?, ?, ?)",
         "insert_data": lambda row: (row[3], row[0], row[1], row[2]),
         "process_actions": "update ida set istat = 2, imess = 'Just testing' where iload = ?"
+=======
+        "insert_action": "insert into dput_test (code, name, alpha2, alpha3) values (?, ?, ?, ?)",
+        "insert_values": lambda row: (row[3], row[0], row[1], row[2]),
+        "process_actions": ["update ida set istat = 2, imess = 'Just testing' where iload = ?"]
+>>>>>>> 2c0015bc478159487a94de627f47bc7997a032a0
     },
     "nested_01_ida": {
         "tags": ['ida', 'json', 'nested'],
         "file": "test_nested_01.json",
         "encoding": "UTF-8",
+<<<<<<< HEAD
         "insert_data": [
             lambda row: (row['region'], len(row['countries'])),
             lambda row: [(n['code'], n['name'], n['alpha2'], n['alpha3']) for n in row['countries']] if row['countries'] else []
         ],
         "process_actions": "delete from ida where iload = ?"
+=======
+        "insert_values": lambda row: (row['region'], len(row['countries'])),
+        "nested_insert_rows": [
+            lambda row: [(n['code'], n['name'], n['alpha2'], n['alpha3']) for n in row['countries']] if row['countries'] else []
+        ],
+        "process_actions": ["delete from ida where iload = ?"]
+>>>>>>> 2c0015bc478159487a94de627f47bc7997a032a0
     },
     "nested_02_ida": {
         "tags": ['ida', 'json', 'nested'],
         "file": "test_nested_02.json",
         "encoding": "UTF-8",
+<<<<<<< HEAD
         "insert_data": [
             lambda row: (row['category'], row['doc'], len(row['en_fr']), len(row['en_fr_ru'])),
             lambda row: [(r['en'], r['fr']) for r in row['en_fr']] if row['en_fr'] else [],
             lambda row: row['en_fr_ru']
         ],
         "process_actions": "delete from ida where iload = ?"
+=======
+        "insert_values": lambda row: (row['category'], row['doc'], len(row['en_fr']), len(row['en_fr_ru'])),
+        "nested_insert_rows": [
+            lambda row: [(r['en'], r['fr']) for r in row['en_fr']] if row['en_fr'] else [],
+            lambda row: row['en_fr_ru']
+        ],
+        "process_actions": ["delete from ida where iload = ?"]
+>>>>>>> 2c0015bc478159487a94de627f47bc7997a032a0
     },
     "nested_01_test": {
         "tags": ['json', 'nested'],
         "file": "test_nested_01.json",
         "encoding": "UTF-8",
+<<<<<<< HEAD
         "insert_actions": [
             "insert into test_region (region, contains) values (?, ?)",
             "insert into test_countries (region, code, name) values (?, ?, ?)"
@@ -281,6 +373,24 @@ specs = {
         "encoding": "UTF-8",
         "insert_data": lambda row: [(row['region'], n['code'], n['name']) for n in row['countries']] if row['countries'] else [],
         "process_actions": "delete from ida where iload = ?"
+=======
+        "insert_action": "insert into test_region (region, contains) values (?, ?)",
+        "insert_values": lambda row: (row['region'], len(row['countries'])),
+        "nested_insert_actions": [
+            "insert into test_countries (region, code, name) values (?, ?, ?)"
+        ],
+        "nested_insert_rows": [
+            lambda row: [(row['region'], n['code'], n['name']) for n in row['countries']] if row['countries'] else []
+        ],
+        "process_actions": ["delete from ida where iload = ?"]
+    },
+    "ff_ida_test": {
+        "tags": ['json', 'filter', 'flatten'],
+        "file": "test_nested_01.json",
+        "encoding": "UTF-8",
+        "insert_rows": lambda row: [(row['region'], n['code'], n['name']) for n in row['countries']] if row['countries'] else [],
+        "process_actions": ["delete from ida where iload = ?"]
+>>>>>>> 2c0015bc478159487a94de627f47bc7997a032a0
     },
 }
 

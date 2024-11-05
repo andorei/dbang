@@ -2,7 +2,7 @@ import os
 
 sources = {
     #
-    # Data sources used in dbang test specs
+    # Data sources used in dbang test specs.
     #
     "sqlite-source": {
         "database": "sqlite",
@@ -22,4 +22,13 @@ sources = {
         "con_string": "",
         "con_kwargs": {'host': 'host', 'database': 'database', 'user': 'username', 'password': 'password'}
     },
+}
+
+hedwig = {
+    #
+    # Sensitive hedwig parameters used in dbang test specs.
+    #
+    'MAIL_SERVER': 'smtp.example.net',
+    'MAIL_FROM': 'dbang <dbang@example.net>',
+    'MAIL_TO': 'user@example.net'
 }
