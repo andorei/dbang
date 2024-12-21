@@ -109,7 +109,7 @@ LOG_FILE = os.path.join(LOG_DIR, f"{date.today().isoformat()}_{BASENAME.rsplit('
 logging.basicConfig(
     filename=LOG_FILE,
     #encoding='utf-8', # encoding needs Python >=3.9
-    format="%(asctime)s:%(levelname)s:%(name)s:%(message)s",
+    format="%(asctime)s:%(levelname)s:%(process)s:%(message)s",
     level=logging.DEBUG if DEBUGGING else logging.INFO if LOGGING else logging.CRITICAL + 1
 )
 logger = logging.getLogger(BASENAME.rsplit('.', 1)[0])
@@ -154,6 +154,9 @@ def exec_sql(con, sql):
 
 
 def connection(src):
+    """"
+    Get database connection by name src.
+    """
     if isinstance(src, str):
         source = sources[src]
     elif isinstance(src, dict):
@@ -223,7 +226,39 @@ def rows_from_cursor(cur, first_row=None, fetch_rows=0):
     logger.info("Got %s rows.", rowcount)
 
 
+def file_stem(stem, parts, seqn, user):
+    filename_dict = dict()
+    for part in parts:
+        if part == 'date':
+            filename_dict['date'] = date.today().isoformat()
+        elif part == 'datetime':
+            filename_dict['datetime'] = datetime.now().strftime('%Y-%m-%d-%H-%M-%S')
+        elif part == 'seqn':
+            filename_dict['seqn'] = seqn
+        elif part == 'user':
+            filename_dict['user'] = user
+    return stem % filename_dict
+
+
+def finalize_file(filename, file_format, compress=False):
+    _filename = filename.rstrip('out') + file_format
+    if compress:
+        import zipfile
+        _zipfilename = _filename + '.zip'
+        with zipfile.ZipFile(_zipfilename, 'w') as zf:
+            zf.write(filename, arcname=os.path.basename(_filename))
+        os.remove(filename)
+    else:
+        # os.rename: On Windows, if dst exists a FileExistsError is always raised.
+        if os.path.isfile(_filename):
+            os.remove(_filename)
+        os.rename(filename, _filename)
+
+
 def trace(ts, status):
+    """
+    Create or rename trace file to show current status.
+    """
     if not args.trace:
         return
 
@@ -258,6 +293,11 @@ def process(run, spec_name, spec, out_file):
         assert out_file or spec.get('file'), \
             f"Output file not specified, spec \"{spec_name}\""
         out_base, out_format = (out_file or spec.get('file')).rsplit('.', 1)
+        if out_format == 'zip':
+            out_compress = True
+            out_base, out_format = out_base.rsplit('.', 1)
+        else:
+            out_compress = False
         assert out_format in ('html', 'csv', 'xlsx', 'json') or (
             isinstance(spec['template'], str) and
             spec['template'].endswith(".jinja") and
@@ -285,8 +325,8 @@ def process(run, spec_name, spec, out_file):
         # Retrieve data.
         cur = con.cursor()
 
-        if isinstance(spec.get('titles'), str):
-            query = spec['titles']
+        if isinstance(spec.get('header'), str):
+            query = spec['header']
             logger.debug('\n\n%s\n', query.strip())
             cur.execute(query)
             # if query returns query execute it
@@ -294,7 +334,7 @@ def process(run, spec_name, spec, out_file):
                 query = cur.fetchone()[0]
                 logger.debug('\n\n%s\n', query.strip())
                 cur.execute(query)
-            spec['titles'] = cur.fetchone()
+            spec['header'] = cur.fetchone()
 
         query = spec['query']
         qargs = spec.get('bind_args', {})
@@ -308,12 +348,12 @@ def process(run, spec_name, spec, out_file):
             logger.debug('\n\n%s\n', query.strip())
             cur.execute(query)
 
-        if not spec.get('titles'):
-            spec['titles'] = [d[0] for d in cur.description]
+        if not spec.get('header'):
+            spec['header'] = [d[0] for d in cur.description]
 
         out_path = spec.get('out_dir', OUT_DIR)
         rows_per_file = spec.get('rows_per_file', 0)
-        encoding = spec[out_format].get('encoding', ENCODING) if spec.get(out_format) else ENCODING
+        encoding = spec.get(f"{out_format}.encoding", ENCODING)
 
         filename_parts = re.findall(r'%\((.+?)\)', out_base)
         assert not filename_parts or \
@@ -327,49 +367,35 @@ def process(run, spec_name, spec, out_file):
             #
             # create .json or .html file(s) using jinja2 template
             #
-            template = env.get_template(spec[out_format].get('template', f"dget.{out_format}.jinja") if spec.get(out_format) else f"dget.{out_format}.jinja")
+            template = env.get_template(spec.get(f"{out_format}.template", f"dget.{out_format}.jinja"))
             while True:
                 first_row = cur.fetchone()
                 if not first_row:
                     break
                 else:
-                    filename_dict = dict()
-                    for part in filename_parts:
-                        if part == 'date':
-                            filename_dict['date'] = date.today().isoformat()
-                        elif part == 'datetime':
-                            filename_dict['datetime'] = datetime.now().strftime('%Y-%m-%d-%H-%M-%S')
-                        elif part == 'seqn':
-                            filename_dict['seqn'] = seqn
-                        elif part == 'user':
-                            filename_dict['user'] = args.user
-                    out_file = (out_base % filename_dict) + '.out'
+                    out_file = file_stem(out_base, filename_parts, seqn, args.user) + '.out'
                     seqn += 1
                     out_file = os.path.join(out_path, out_file)
                     file = open(out_file, 'w', encoding=encoding, errors='replace')
                     file.write(
                         template.render(
                             run=run,
-                            spec_name=spec_name,
-                            title=spec['html'].get('title', spec_name) if out_format == 'html' and spec.get('html') else spec_name,
-                            titles=spec['titles'],
+                            title=spec.get(f"{out_format}.title", spec_name),
+                            titles=spec['header'],
                             source=spec['source'],
-                            dec_sep=spec['html'].get('dec_separator', '.') if out_format == 'html' and spec.get('html') else '.',
+                            dec_sep=spec.get(f"{out_format}.dec_separator", '.'),
                             rows=rows_from_cursor(cur, first_row, rows_per_file),
                             zip=zip
                         )
                     )
                     file.close()
-                    _out_file = out_file.rstrip('out') + out_format
-                    # os.rename: On Windows, if dst exists a FileExistsError is always raised.
-                    if os.path.isfile(_out_file):
-                        os.remove(_out_file)
-                    os.rename(out_file, _out_file)
+                    finalize_file(out_file, out_format, out_compress)
 
         elif out_format == 'csv':
             #
             # create .csv file(s) line by line
             #
+            dec_separator = spec.get('csv.dec_separator', '.')
             while True:
                 rows = cur.fetchmany(ONE_FETCH_ROWS)
                 if not rows:
@@ -377,49 +403,31 @@ def process(run, spec_name, spec, out_file):
                 for row in rows:
                     # begin file
                     if file is None:
-                        filename_dict = dict()
-                        for part in filename_parts:
-                            if part == 'date':
-                                filename_dict['date'] = date.today().isoformat()
-                            elif part == 'datetime':
-                                filename_dict['datetime'] = datetime.now().strftime('%Y-%m-%d-%H-%M-%S')
-                            elif part == 'seqn':
-                                filename_dict['seqn'] = seqn
-                            elif part == 'user':
-                                filename_dict['user'] = args.user
-                        out_file = (out_base % filename_dict) + '.out'
+                        out_file = file_stem(out_base, filename_parts, seqn, args.user) + '.out'
                         seqn += 1
                         out_file = os.path.join(out_path, out_file)
                         file = open(out_file, 'w', encoding=encoding, errors='replace')
                         csv_writer = \
                             csv.writer(
                                 file,
-                                dialect=spec['csv'].get('dialect', CSV_DIALECT) if spec.get('csv') else CSV_DIALECT,
-                                delimiter=spec['csv'].get('delimiter', CSV_DELIMITER) if spec.get('csv') else CSV_DELIMITER,
+                                dialect=spec.get('csv.dialect', CSV_DIALECT),
+                                delimiter=spec.get('csv.delimiter', CSV_DELIMITER),
                                 lineterminator='\n'
                             )
-                        csv_writer.writerow(spec['titles'])
+                        csv_writer.writerow(spec['header'])
                     # next line
-                    csv_writer.writerow(csv_row(row, spec['csv'].get('dec_separator', '.') if spec.get('csv') else '.'))
+                    csv_writer.writerow(csv_row(row, dec_separator))
                     rowcount += 1
                     if rows_per_file and rowcount % rows_per_file == 0:
                         # end file
                         file.close()
                         file = None
-                        _out_file = out_file.rstrip('out') + out_format
-                        # os.rename: On Windows, if dst exists a FileExistsError is always raised.
-                        if os.path.isfile(_out_file):
-                            os.remove(_out_file)
-                        os.rename(out_file, _out_file)
+                        finalize_file(out_file, out_format, out_compress)
             if file:
                 # end file
                 file.close()
                 file = None
-                _out_file = out_file.rstrip('out') + out_format
-                # os.rename: On Windows, if dst exists a FileExistsError is always raised.
-                if os.path.isfile(_out_file):
-                    os.remove(_out_file)
-                os.rename(out_file, _out_file)
+                finalize_file(out_file, out_format, out_compress)
             logger.info("Got %s rows.", rowcount)
 
         elif out_format == 'xlsx':
@@ -434,23 +442,13 @@ def process(run, spec_name, spec, out_file):
                 for row in rows:
                     # begin file
                     if wb is None:
-                        filename_dict = dict()
-                        for part in filename_parts:
-                            if part == 'date':
-                                filename_dict['date'] = date.today().isoformat()
-                            elif part == 'datetime':
-                                filename_dict['datetime'] = datetime.now().strftime('%Y-%m-%d-%H-%M-%S')
-                            elif part == 'seqn':
-                                filename_dict['seqn'] = seqn
-                            elif part == 'user':
-                                filename_dict['user'] = args.user
-                        out_file = (out_base % filename_dict) + '.out'
+                        out_file = file_stem(out_base, filename_parts, seqn, args.user) + '.out'
                         seqn += 1
                         out_file = os.path.join(out_path, out_file)
                         wb = Workbook(write_only=True)
                         ws = wb.create_sheet()
                         font = styles.Font(bold=True)
-                        titles = [WriteOnlyCell(ws, value=title) for title in spec['titles']]
+                        titles = [WriteOnlyCell(ws, value=title) for title in spec['header']]
                         for title in titles:
                             title.font = font
                         ws.append(titles)
@@ -462,21 +460,13 @@ def process(run, spec_name, spec, out_file):
                         wb.save(out_file)
                         wb.close()
                         wb = None
-                        _out_file = out_file.rstrip('out') + out_format
-                        # os.rename: On Windows, if dst exists a FileExistsError is always raised.
-                        if os.path.isfile(_out_file):
-                            os.remove(_out_file)
-                        os.rename(out_file, _out_file)
+                        finalize_file(out_file, out_format, out_compress)
             if wb:
                 # end file
                 wb.save(out_file)
                 wb.close()
                 wb = None
-                _out_file = out_file.rstrip('out') + out_format
-                # os.rename: On Windows, if dst exists a FileExistsError is always raised.
-                if os.path.isfile(_out_file):
-                    os.remove(_out_file)
-                os.rename(out_file, _out_file)
+                finalize_file(out_file, out_format, out_compress)
             logger.info("Got %s rows.", rowcount)
 
         cur.close()

@@ -28,12 +28,40 @@ ENCODING = 'cp1251'
 CSV_DELIMITER = ';'
 # number of loads preserved per spec defaults to 10
 #PRESERVE_N_LOADS = 10
+# data source
 SOURCE = "oracle-source"
 
 #
 # SETTINGS USED IN specs
 #
-pass
+
+# special_ida_test
+FIELD_NAMES = ['Code', 'Name']
+FIELD_INDEXES = []
+FIELD_SEP = ';'
+
+def special_ida_test(line_no, line):
+    """
+    line_no - number of line in individual file
+    line    - line content
+    """
+    global FIELD_NAMES, FIELD_INDEXES, FIELD_SEP
+    row = None
+    if line_no == 1:
+        # Delimiter Character
+        FIELD_SEP = line.split('=')[1].strip()
+    elif line_no == 2:
+        # Field Names
+        field_names = line.rstrip('\n').split(sep=FIELD_SEP)
+        FIELD_INDEXES = []
+        for field_name in FIELD_NAMES:
+            FIELD_INDEXES.append(field_names.index(field_name))
+    else:
+        # Data
+        row = line.rstrip('\n').split(sep=FIELD_SEP)
+        row = [row[idx] for idx in FIELD_INDEXES]
+    return row
+
 
 specs = {
     "csv_ida_test": {
@@ -51,8 +79,11 @@ specs = {
         #"csv_dialect": CSV_DIALECT,
         #"csv_delimiter": CSV_DELIMITER,
         #"csv_quotechar": CSV_QUOTECHAR,
-        #"skip_header": 0,
+        #"skip_lines": 0,
         #"preserve_n_loads": PRESERVE_N_LOADS,
+        #
+        # optionally initialize data loading
+        #"setup": [],
         #
         # optionally validate loaded data
         "validate_actions": [
@@ -82,7 +113,29 @@ specs = {
         "process_actions": [
             # just teardown
             "delete from ida where iload = :1"
-        ]
+        ],
+        # optionally finalize data loading
+        #"upset": []
+    },
+    "selected_ida_test": {
+        "tags": ['selected', 'csv', 'ida'],
+        "file": "test.csv",
+        "insert_data": lambda row: (row[3], row[0]) if row[0][0] in 'AEIOU' else None,
+        "validate_actions": [
+            """
+            update ida_lines set
+                istat = 2,
+                ierrm = trim(ierrm || ' Empty field.')
+            where iload = :1
+                and substr(c1, 1, 1) not in ('A', 'E', 'I', 'O', 'U')
+            """
+        ],
+        "process_actions": ["delete from ida where iload = :1"]
+    },
+    "--commented_out": {
+        "tags": ['csv', 'ida', 'commented'],
+        "file": "test.csv",
+        "process_actions": ["delete from ida where iload = :1"]
     },
     "csv_skip_test": {
         "tags": ['csv', 'ida', 'skip_header'],
@@ -218,56 +271,205 @@ specs = {
             lambda row: (row['region'], len(row['countries'])),
             lambda row: [(row['region'], n['code'], n['name']) for n in row['countries']] if row['countries'] else []
         ],
-        "process_actions": "delete from ida where iload = :1"
+        "validate_actions": """
+            update ida set istat = 2
+            where iload = :1
+                and exists (
+                    select 1
+                    from test_region r
+                    where contains != (
+                            select count(*)
+                            from test_countries c
+                            where r.region = c.region
+                        )
+                )
+            """,
+        "process_actions": [
+            "delete from ida where iload = :1",
+            "delete from test_countries where :1 is not null",
+            "delete from test_region where :1 is not null"
+        ]
     },
-    "ff_ida_test": {
+    "nested_02_test": {
+        "tags": ['json', 'nested'],
+        "file": "test_nested_01.json",
+        "encoding": "UTF-8",
+        "insert_actions": [
+            "insert into test_region (iload, iline, region, contains) values (:1, :2, :3, :4)",
+            "insert into test_countries (iload, iline, code, name) values (:1, :2, :3, :4)"
+        ],
+        "insert_data": [
+            lambda iload, iline, row: (iload, iline, row['region'], len(row['countries'])),
+            lambda iload, iline, row: [(iload, iline, n['code'], n['name']) for n in row['countries']] if row['countries'] else []
+        ],
+        "validate_actions": """
+            update ida set istat = 2 
+            where iload = :1
+                and exists (
+                    select 1
+                    from test_region r
+                    where contains != (
+                            select count(*)
+                            from test_countries c
+                            where r.iload = c.iload
+                                and r.iline = c.iline
+                        )
+                )
+            """,
+        "process_actions": [
+            "delete from ida where iload = :1",
+            "delete from test_countries where :1 is not null",
+            "delete from test_region where :1 is not null"
+        ]
+    },
+    "flatten_ida_test": {
         "tags": ['json', 'filter', 'flatten'],
         "file": "test_nested_01.json",
         "encoding": "UTF-8",
         "insert_data": lambda row: [(row['region'], n['code'], n['name']) for n in row['countries']] if row['countries'] else [],
         "process_actions": "delete from ida where iload = :1"
     },
+    "special_ida_test": {
+        "tags": ['pass_lines', 'ida'],
+        "file": "test_special.csv",
+        # just pass lines of the file to insert_data function
+        "pass_lines": True,
+        "insert_data": special_ida_test,
+        "process_actions": "delete from ida where iload = :1"
+    },
+    "lines_ida_test": {
+        "tags": ['pass_lines', 'ida'],
+        "file": "test_special.csv",
+        # just pass lines of the file to a column (that should be big enough)
+        "pass_lines": True,
+        "process_actions": "delete from ida where iload = :1"
+    },
+    "zipped_ida_test": {
+        "tags": ['zipped', 'ida'],
+        "file": "test_zip.zip",
+        "process_actions": "delete from ida where iload = :1"
+    },
+    "setup_upset_test": {
+        "tags": ['csv', 'ida', 'setup', 'upset'],
+        "file": "test.csv",
+        "setup": [
+            """
+            begin
+                execute immediate 'drop table target_table';
+            exception
+                when others then
+                    if sqlcode = -942 then
+                        null; -- ORA-00942 table or view does not exist
+                    end if;
+            end;
+            """,
+            """
+            create table target_table (
+                code char(3),
+                name varchar2(100),
+                alpha2 char(2),
+                alpha3 char(3)
+            )
+            """
+        ],
+        "validate_actions": [
+            """
+            update ida_lines set
+                istat = 2,
+                ierrm = trim(ierrm || ' Empty field.')
+            where iload = :1
+                and (c1 is null or c2 is null or c3 is null or c4 is null)
+            """
+        ],
+        "process_actions": [
+            """
+            insert into target_table (
+                code,
+                name,
+                alpha2,
+                alpha3
+            )
+            select c4 code,
+                c1 name,
+                c2 alpha2,
+                c3 alpha3
+            from ida_lines
+            where iload = :1
+            """,
+            """
+            delete from ida where iload = :1
+            """
+        ],
+        "upset": [
+            """
+            begin
+                execute immediate 'drop table target_table';
+            exception
+                when others then
+                    if sqlcode = -942 then
+                        null; -- ORA-00942 table or view does not exist
+                    end if;
+            end;
+            """
+        ]
+    },
 }
 
 sources["oracle-source"]["setup"] = sources['oracle-source'].get('setup', []) + [
     """
 begin
-    execute immediate '
+    execute immediate 'drop table dput_test';
+exception
+    when others then
+        if sqlcode = -942 then
+            null; -- ORA-00942 table or view does not exist
+        end if;
+end;
+    """,
+    """
 create table dput_test (
     code varchar2(3) not null,
     name varchar2(50) not null,
     alpha2 char(2),
     alpha3 char(3)
-)';
-exception
-    when others then
-        null;
-end;
+)
     """,
     """
 begin
-    execute immediate '
+    execute immediate 'drop table test_region';
+exception
+    when others then
+        if sqlcode = -942 then
+            null; -- ORA-00942 table or view does not exist
+        end if;
+end;
+    """,
+    """
 create table test_region (
     region varchar2(50) not null,
-    contains number(3) not null
-)';
-exception
-    when others then
-        null;
-end;
+    contains number(3) not null,
+    iload number(9),
+    iline number(9)
+)
     """,
     """
 begin
-    execute immediate '
-create table test_countries (
-    region varchar2(50) not null,
-    code varchar2(3) not null,
-    name varchar2(50) not null
-)';
+    execute immediate 'drop table test_countries';
 exception
     when others then
-        null;
+        if sqlcode = -942 then
+            null; -- ORA-00942 table or view does not exist
+        end if;
 end;
+    """,
+    """
+create table test_countries (
+    code varchar2(3) not null,
+    name varchar2(50) not null,
+    region varchar2(50),
+    iload number(9),
+    iline number(9)
+)
     """,
     """
 create or replace procedure validate_dput_test(p_iload number)
@@ -308,7 +510,9 @@ begin
     execute immediate 'drop table dput_test';
 exception
     when others then
-        null;
+        if sqlcode = -942 then
+            null; -- ORA-00942 table or view does not exist
+        end if;
 end;
     """,
     """
@@ -316,7 +520,9 @@ begin
     execute immediate 'drop table test_countries';
 exception
     when others then
-        null;
+        if sqlcode = -942 then
+            null; -- ORA-00942 table or view does not exist
+        end if;
 end;
     """,
     """
@@ -324,7 +530,9 @@ begin
     execute immediate 'drop table test_region';
 exception
     when others then
-        null;
+        if sqlcode = -942 then
+            null; -- ORA-00942 table or view does not exist
+        end if;
 end;
     """,
     """
@@ -332,7 +540,10 @@ begin
     execute immediate 'drop procedure validate_dput_test';
 exception
     when others then
-        null;
+        if sqlcode = -4043 then
+            -- ORA-04043 object <OBJECT> does not exist
+            null;
+        end if;
 end;
     """,
     """
@@ -340,7 +551,10 @@ begin
     execute immediate 'drop procedure process_dput_test';
 exception
     when others then
-        null;
+        if sqlcode = -4043 then
+            -- ORA-04043 object <OBJECT> does not exist
+            null;
+        end if;
 end;
     """
 ]

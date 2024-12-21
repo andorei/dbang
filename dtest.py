@@ -83,7 +83,7 @@ LOG_FILE = os.path.join(LOG_DIR, f"{date.today().isoformat()}_{BASENAME.rsplit('
 logging.basicConfig(
     filename=LOG_FILE,
     #encoding='utf-8', # encoding needs Python >=3.9
-    format="%(asctime)s:%(levelname)s:%(name)s:%(message)s",
+    format="%(asctime)s:%(levelname)s:%(process)s:%(message)s",
     level=logging.DEBUG if DEBUGGING else logging.INFO if LOGGING else logging.CRITICAL + 1
 )
 logger = logging.getLogger(BASENAME.rsplit('.', 1)[0])

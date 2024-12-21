@@ -93,7 +93,7 @@ LOG_FILE = os.path.join(LOG_DIR, f"{date.today().isoformat()}_{BASENAME.rsplit('
 logging.basicConfig(
     filename=LOG_FILE,
     #encoding='utf-8', # encoding needs Python >=3.9
-    format="%(asctime)s:%(levelname)s:%(name)s:%(message)s",
+    format="%(asctime)s:%(levelname)s:%(process)s:%(message)s",
     level=logging.DEBUG if DEBUGGING else logging.INFO if LOGGING else logging.CRITICAL + 1
 )
 logger = logging.getLogger(BASENAME.rsplit('.', 1)[0])
@@ -687,7 +687,7 @@ def process(spec_name, spec, input_file, stat):
 
     source = sources[spec['source']]
     filename = os.path.basename(in_file)
-    in_format = filename.split('.')[-1]
+    file_ext = filename.split('.')[-1]
 
     con = None
     cur = None
@@ -705,11 +705,11 @@ def process(spec_name, spec, input_file, stat):
             spec['process_actions'] = [spec['process_actions']]
 
         # validate the spec
-        assert in_format in ('csv', 'xlsx', 'json'), \
-            f"Bad format \"{in_format}\" in spec \"{spec_name}\""
+        assert file_ext in ('csv', 'xlsx', 'json', 'zip'), \
+            f"Bad file extension \"{file_ext}\" in spec \"{spec_name}\""
         assert sources.get(spec['source']), \
             f"Source \"{spec['source']}\" not defined, spec \"{spec_name}\""
-        assert in_format != 'json' or spec.get('insert_data'), \
+        assert file_ext != 'json' or spec.get('insert_data'), \
             f"Missing \"insert_data\" in spec \"{spec_name}\""
         assert all(isinstance(i, str) for i in spec.get('insert_actions', [])), \
             f"Bad \"insert_actions\" in spec \"{spec_name}\""
@@ -755,6 +755,12 @@ def process(spec_name, spec, input_file, stat):
         logger.debug("Loading %s, %s", spec_name, in_file)
 
         con = connection(spec['source'])
+
+        # Optionally initialize/prepare for data loading.
+        if spec.get('setup'):
+            logger.debug('-- spec setup')
+            exec_sql(con, spec['setup'])
+
         cur = con.cursor()
         count = 0
         idata = []
@@ -763,8 +769,39 @@ def process(spec_name, spec, input_file, stat):
         istmt = []
         for ifile in target_files:
 
+            if file_ext == 'zip':
+                # unzip if zipfile contains the only file that meets the requirements
+                import zipfile
+                with zipfile.ZipFile(ifile) as zf:
+                    inner_file = zf.namelist()
+                    assert len(inner_file) == 1, \
+                        f"More than 1 member in file {ifile}"
+                    inner_file = inner_file[0]
+                    assert os.path.basename(inner_file) == inner_file, \
+                        f"Zip file member has path in file {ifile}"
+                    inner_name, inner_ext = inner_file.rsplit('.', 1)
+                    ifile_path, ifile_name = os.path.split(ifile)
+                    assert ifile_name.rsplit('.', 1)[0] in (inner_file, inner_name), \
+                        f"Zip file member name is inconsistent with file name {ifile}"
+                    assert inner_ext in ('csv', 'json', 'xlsx'), \
+                        f"Zip file member has bad extension \"{inner_ext}\" in file {ifile}"
+                    assert inner_ext != 'json' or spec.get('insert_data'), \
+                        f"Missing \"insert_data\" in spec \"{spec_name}\""
+                    zf.extractall(ifile_path)
+                    extracted_file = os.path.join(ifile_path, inner_file)
+                if os.path.isfile(extracted_file):
+                    if args.delete or spec.get('delete'):
+                        os.remove(ifile)
+                    ifile = extracted_file
+                    in_format = inner_ext
+            else:
+                in_format = file_ext
+
             # open file for reading
-            if in_format == 'csv':
+            if spec.get('pass_lines', False):
+                file = open(ifile, 'r', encoding=spec.get('encoding', ENCODING))
+                reader = file
+            elif in_format == 'csv':
                 file = open(ifile, 'r', encoding=spec.get('encoding', ENCODING))
                 reader = \
                     csv.reader(
@@ -783,6 +820,7 @@ def process(spec_name, spec, input_file, stat):
                 assert isinstance(reader, list), f"Bad json file {ifile}"
 
             # load data from file
+            line_no = 0
             for row in reader:
 
                 # create header in table ida
@@ -791,7 +829,8 @@ def process(spec_name, spec, input_file, stat):
                     con.commit()
 
                 count += 1
-                if count <= spec.get('skip_lines', 0):
+                line_no += 1
+                if line_no <= spec.get('skip_lines', 0):
                     continue
 
                 # prepare insert statements and data to insert
@@ -804,7 +843,9 @@ def process(spec_name, spec, input_file, stat):
                         icount.append(0)
                     insert_data = \
                         func(row) if func and func.__code__.co_argcount == 1 else \
+                        func(line_no, row) if func and func.__code__.co_argcount == 2 else \
                         func(iload, count, row) if func and func.__code__.co_argcount == 3 else \
+                        [row] if spec.get('pass_lines', False) else \
                         row
                     if not insert_data:
                         # insert no row
@@ -835,12 +876,12 @@ def process(spec_name, spec, input_file, stat):
                         icount[n] += len(idata[n])
                         idata[n].clear()
 
-            if in_format in ('csv', 'json'):
+            if spec.get('pass_lines', False) or in_format in ('csv', 'json'):
                 file.close()
             elif in_format == 'xlsx':
                 wb.close()
 
-            if args.delete or spec.get('delete'):
+            if args.delete or spec.get('delete') or file_ext == 'zip':
                 os.remove(ifile)
             logger.info("%s", ifile)
 
@@ -918,6 +959,12 @@ def process(spec_name, spec, input_file, stat):
             IDA_DELETE_OLD_LOADS[source['database']],
             (spec_name, spec.get('preserve_n_loads', PRESERVE_N_LOADS))
         )
+        con.commit()
+
+        # Optionally finalize data loading.
+        if spec.get('upset'):
+            logger.debug('-- spec upset')
+            exec_sql(con, spec['upset'])
         con.commit()
 
         # set stat data no earlier than all files are successfully processed

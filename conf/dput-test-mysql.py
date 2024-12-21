@@ -34,7 +34,34 @@ SOURCE = "mysql-source"
 #
 # SETTINGS USED IN specs
 #
-pass
+
+# special_ida_test
+FIELD_NAMES = ['Code', 'Name']
+FIELD_INDEXES = []
+FIELD_SEP = ';'
+
+def special_ida_test(line_no, line):
+    """
+    line_no - number of line in individual file
+    line    - line content
+    """
+    global FIELD_NAMES, FIELD_INDEXES, FIELD_SEP
+    row = None
+    if line_no == 1:
+        # Delimiter Character
+        FIELD_SEP = line.split('=')[1].strip()
+    elif line_no == 2:
+        # Field Names
+        field_names = line.rstrip('\n').split(sep=FIELD_SEP)
+        FIELD_INDEXES = []
+        for field_name in FIELD_NAMES:
+            FIELD_INDEXES.append(field_names.index(field_name))
+    else:
+        # Data
+        row = line.rstrip('\n').split(sep=FIELD_SEP)
+        row = [row[idx] for idx in FIELD_INDEXES]
+    return row
+
 
 specs = {
     "csv_ida_test": {
@@ -54,6 +81,9 @@ specs = {
         #"csv_quotechar": CSV_QUOTECHAR,
         #"skip_lines": 0,
         #"preserve_n_loads": PRESERVE_N_LOADS,
+        #
+        # optionally initialize data loading
+        #"setup": [],
         #
         # optionally validate loaded data
         "validate_actions": [
@@ -83,7 +113,29 @@ specs = {
         "process_actions": [
             # just teardown
             "delete from ida where iload = %s"
-        ]
+        ],
+        # optionally finalize data loading
+        #"upset": []
+    },
+    "selected_ida_test": {
+        "tags": ['selected', 'csv', 'ida'],
+        "file": "test.csv",
+        "insert_data": lambda row: (row[3], row[0]) if row[0][0] in 'AEIOU' else None,
+        "validate_actions": [
+            """
+            update ida_lines set
+                istat = 2,
+                ierrm = trim(ierrm || ' Empty field.')
+            where iload = %s
+                and substr(c1, 1, 1) not in ('A', 'E', 'I', 'O', 'U')
+            """
+        ],
+        "process_actions": ["delete from ida where iload = %s"]
+    },
+    "--commented_out": {
+        "tags": ['csv', 'ida', 'commented'],
+        "file": "test.csv",
+        "process_actions": ["delete from ida where iload = %s"]
     },
     "csv_skip_test": {
         "tags": ['csv', 'ida', 'skip_lines'],
@@ -155,7 +207,7 @@ specs = {
         "tags": ['ida'],
         "file": "test_000???.json",
         "insert_data": lambda row: (row["code"], row["name"], row.get("alpha2"), row.get("alpha3")),
-        "process_actions": "delete from ida where iload = %s"
+        "process_actions": ["delete from ida where iload = %s"]
     },
     "xlsx_ida_test": {
         "tags": ['ida'],
@@ -219,18 +271,140 @@ specs = {
             lambda row: (row['region'], len(row['countries'])),
             lambda row: [(row['region'], n['code'], n['name']) for n in row['countries']] if row['countries'] else []
         ],
-        "process_actions": "delete from ida where iload = %s"
+        "validate_actions": """
+            update ida set istat = 2
+            where iload = %s
+                and exists (
+                    select 1
+                    from test_region r
+                    where contains != (
+                            select count(*)
+                            from test_countries c
+                            where r.region = c.region
+                        )
+                )
+            """,
+        "process_actions": [
+            "delete from ida where iload = %s",
+            "delete from test_countries where %s is not null",
+            "delete from test_region where %s is not null"
+        ]
     },
-    "ff_ida_test": {
+    "nested_02_test": {
+        "tags": ['json', 'nested'],
+        "file": "test_nested_01.json",
+        "encoding": "UTF-8",
+        "insert_actions": [
+            "insert into test_region (iload, iline, region, contains) values (%s, %s, %s, %s)",
+            "insert into test_countries (iload, iline, code, name) values (%s, %s, %s, %s)"
+        ],
+        "insert_data": [
+            lambda iload, iline, row: (iload, iline, row['region'], len(row['countries'])),
+            lambda iload, iline, row: [(iload, iline, n['code'], n['name']) for n in row['countries']] if row['countries'] else []
+        ],
+        "validate_actions": """
+            update ida set istat = 2 
+            where iload = %s
+                and exists (
+                    select 1
+                    from test_region r
+                    where contains != (
+                            select count(*)
+                            from test_countries c
+                            where r.iload = c.iload
+                                and r.iline = c.iline
+                        )
+                )
+            """,
+        "process_actions": [
+            "delete from ida where iload = %s",
+            "delete from test_countries where %s is not null",
+            "delete from test_region where %s is not null"
+        ]
+    },
+    "flatten_ida_test": {
         "tags": ['json', 'filter', 'flatten'],
         "file": "test_nested_01.json",
         "encoding": "UTF-8",
         "insert_data": lambda row: [(row['region'], n['code'], n['name']) for n in row['countries']] if row['countries'] else [],
         "process_actions": "delete from ida where iload = %s"
     },
+    "special_ida_test": {
+        "tags": ['pass_lines', 'ida'],
+        "file": "test_special.csv",
+        # just pass lines of the file to insert_data function
+        "pass_lines": True,
+        "insert_data": special_ida_test,
+        "process_actions": "delete from ida where iload = %s"
+    },
+    "lines_ida_test": {
+        "tags": ['pass_lines', 'ida'],
+        "file": "test_special.csv",
+        # just pass lines of the file to a column (that should be big enough)
+        "pass_lines": True,
+        "process_actions": "delete from ida where iload = %s"
+    },
+    "zipped_ida_test": {
+        "tags": ['zipped', 'ida'],
+        "file": "test_zip.zip",
+        "process_actions": "delete from ida where iload = %s"
+    },
+    "setup_upset_test": {
+        "tags": ['csv', 'ida', 'setup', 'upset'],
+        "file": "test.csv",
+        "setup": [
+            """
+            drop table if exists target_table
+            """,
+            """
+            create table if not exists target_table (
+                code char(3),
+                name varchar(100),
+                alpha2 char(2),
+                alpha3 char(3)
+            )
+            """
+        ],
+        "validate_actions": [
+            """
+            update ida_lines set
+                istat = 2,
+                ierrm = trim(ierrm || ' Empty field.')
+            where iload = %s
+                and (c1 is null or c2 is null or c3 is null or c4 is null)
+            """
+        ],
+        "process_actions": [
+            """
+            insert into target_table (
+                code,
+                name,
+                alpha2,
+                alpha3
+            )
+            select c4 code,
+                c1 name,
+                c2 alpha2,
+                c3 alpha3
+            from ida_lines
+            where iload = %s
+            """,
+            """
+            delete from ida where iload = %s
+            """
+        ],
+        "upset": [
+            """
+            drop table if exists target_table
+            """
+        ]
+    },
 }
 
 sources["mysql-source"]["setup"] = sources['mysql-source'].get('setup', []) + [
+    """
+    drop table if exists dput_test
+    """,
     """
 create table if not exists dput_test (
     code varchar(3) not null,
@@ -240,16 +414,26 @@ create table if not exists dput_test (
 )
     """,
     """
+    drop table if exists test_region
+    """,
+    """
 create table if not exists test_region (
     region varchar(50) not null,
-    contains smallint not null
+    contains smallint not null,
+    iload int,
+    iline int
 )
     """,
     """
+    drop table if exists test_countries
+    """,
+    """
 create table if not exists test_countries (
-    region varchar(50) not null,
     code varchar(3) not null,
-    name varchar(50) not null
+    name varchar(50) not null,
+    region varchar(50) not null,
+    iload int,
+    iline int
 )
     """,
     """
