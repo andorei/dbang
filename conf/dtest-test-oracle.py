@@ -37,8 +37,40 @@ specs = {
     },
     "Fault row": {
         "tags": ['failure'],
-        "doc": "Get unexpected row",
+        "doc": "Get unexpected row.",
         "query": "select 1, 2, 3, 4, 5 from dual",
         "titles": ['col_1', 'col_2', 'col_3', 'col_4', 'col_5']
-    }
+    },
+    "Setup and Upset": {
+        "tags": ['setup', 'upset'],
+        "doc": "First setup DB stuff and then release it.",
+        "setup": [
+            """
+begin 
+    execute immediate 'drop table dtest_test';
+exception
+    when others then
+        if sqlcode = -942 then
+            null; -- ORA-00942 table or view does not exist
+        end if;
+end;
+            """,
+            """
+create table dtest_test as select 1 one from dual
+            """
+        ],
+        "query": "select 1 from dtest_test where one != 1",
+        "upset": [
+            """
+begin 
+    execute immediate 'drop table dtest_test';
+exception
+    when others then
+        if sqlcode = -942 then
+            null; -- ORA-00942 table or view does not exist
+        end if;
+end;
+            """
+        ]
+    },
 }

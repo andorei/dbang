@@ -520,8 +520,7 @@ def connection(src):
     return source['con']
 
 
-def pump(run, spec_name, spec, con0, argrows, source_idx):
-    con = connection(spec['sources'][source_idx])
+def pump(run, spec_name, spec, con0, con, argrows, source_idx):
     cur = con.cursor()
     query = spec['queries'][source_idx]
 
@@ -570,6 +569,7 @@ def pump(run, spec_name, spec, con0, argrows, source_idx):
             )
     cur.close()
     cur0.close()
+
     return rowcount
 
 
@@ -605,11 +605,24 @@ def process(run, spec_name, spec, con0, argrows):
             cur0.execute(f"select count(*) from ddiff_diffs_ where cfg='{CFG_MODULE}' and spec='{spec_name}'")
             we_have_1st_pass_diffs = (cur0.fetchone()[0] > 0)
 
+        con1 = connection(spec['sources'][0])
+        con2 = connection(spec['sources'][1])
+
         rows = []
         if not args.two or we_have_1st_pass_diffs:
-            # Get 1st and 2nd query results and insert them into ddiff_ table.
-            rowcount1 = pump(run, spec_name, spec, con0, argrows, 0)
-            rowcount2 = pump(run, spec_name, spec, con0, argrows, 1)
+            # Initialize/Setup DB1 stuff related to this spec and level.
+            if spec.get('setups') and spec['setups'][0]:
+                logger.debug(f"-- spec {spec['sources'][0]} setup")
+                exec_sql(con1, spec['setups'][0])
+            # Get DB1 query results and insert them into ddiff_ table.
+            rowcount1 = pump(run, spec_name, spec, con0, con1, argrows, 0)
+
+            # Initialize/Setup DB2 stuff related to this spec and level.
+            if spec.get('setups') and spec['setups'][1]:
+                logger.debug(f"-- spec {spec['sources'][1]} setup")
+                exec_sql(con2, spec['setups'][1])
+            # Get DB2 query results and insert them into ddiff_ table.
+            rowcount2 = pump(run, spec_name, spec, con0, con2, argrows, 1)
 
             if MAX_FETCH_ROWS <= max(rowcount1, rowcount2):
                 specs[spec_name]['warnings'].append(f"DB1: {rowcount1} rows, DB2: {rowcount2} rows.")
@@ -698,6 +711,15 @@ def process(run, spec_name, spec, con0, argrows):
         else:
             logger.info("Found %s discrepancies.", len(rows))
             specs[spec_name]['result'] = len(rows)
+
+        # Finalize/Release DB1 stuff related to this spec and level.
+        if spec.get('upsets') and spec['upsets'][0]:
+            logger.debug(f"-- spec {spec['sources'][0]} upset")
+            exec_sql(con1, spec['upsets'][0])
+        # Finalize/Release DB2 stuff related to this spec and level.
+        if spec.get('upsets') and spec['upsets'][1]:
+            logger.debug(f"-- spec {spec['sources'][1]} upset")
+            exec_sql(con2, spec['upsets'][1])
 
         if not DDIFF_KEEP:
             cur0.execute("delete from ddiff_")

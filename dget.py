@@ -317,7 +317,7 @@ def process(run, spec_name, spec, out_file):
 
         con = connection(spec['source'])
 
-        # Optionally prepare for data retieval/set the context.
+        # Initialize/Setup stuff related to this spec.
         if spec.get('setup'):
             logger.debug('-- spec setup')
             exec_sql(con, spec['setup'])
@@ -471,7 +471,7 @@ def process(run, spec_name, spec, out_file):
 
         cur.close()
 
-        # Optionally confirm data retrieval.
+        # Finalize/Release stuff related to this spec.
         if spec.get('upset'):
             logger.debug('-- spec upset')
             exec_sql(con, spec['upset'])

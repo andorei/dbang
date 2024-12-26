@@ -49,6 +49,16 @@ specs = {
             "select 42 as answer from dual"
        ]
     },
+    "--commented-out-42": {
+        "tags": ['success'],
+        "sources": ["ONE", "TWO"],
+        #"doc": "42 == 42"
+        "pk": ["answer"],
+        "queries": [
+            "select 42 as answer from dual",
+            "select 42 as answer from dual"
+       ]
+    },
     "diffs": {
         "tags": ['failure'],
         "doc": "Intentionally failed",
@@ -66,7 +76,7 @@ specs = {
             """
        ]
     },
-    "diffs (lt)": {
+    "diffs.lt": {
         "tags": ['success'],
         "op": "<",
         "doc": "Dataset 1 is subset of or equal to Dataset 2",
@@ -86,7 +96,7 @@ specs = {
             """
        ]
     },
-    "diffs (gt)": {
+    "diffs.gt": {
         "tags": ['success'],
         "op": ">",
         "doc": "Dataset 1 is equal to or superset of Dataset 2",
@@ -114,7 +124,9 @@ specs = {
             "select 1 c1, 2 c2, 3 c3, 4 c4, 5 c5 from dual",
             "select 1 c1, 2 c2, 3 c3, 4 c4, 6 c5 from dual"
         ],
+        #
         # level 2
+        #
         "nested": {
             "pk": ["c1", "c2"],
             "queries": [
@@ -129,7 +141,9 @@ specs = {
                 where 1 = {{argrows[0][0]}}
                 """
             ],
+            #
             # level 3
+            #
             "nested": {
                 "pk": ["c1", "c2", "c3"],
                 "queries": [
@@ -173,6 +187,83 @@ specs = {
             select 5 c1, to_char(current_timestamp) c2, 1 c3 from dual
             """
        ]
+    },
+    "nested-with-setup-and-upset": {
+        "tags": ["setup", "upset"],
+        "doc": "First setup DB stuff and then release it.",
+        "setups": [
+            [
+                """
+begin 
+    execute immediate 'drop table ddiff_test_db1';
+exception
+    when others then
+        if sqlcode = -942 then
+            null; -- ORA-00942 table or view does not exist
+        end if;
+end;
+                """,
+                """
+create table ddiff_test_db1 as
+select 1 a, 'hello' b, current_date c
+from dual
+                """
+            ],
+            [
+                """
+begin 
+    execute immediate 'drop table ddiff_test_db2';
+exception
+    when others then
+        if sqlcode = -942 then
+            null; -- ORA-00942 table or view does not exist
+        end if;
+end;
+                """,
+                """
+create table ddiff_test_db2 as
+select 1 a, 'hello' b, current_date c
+from dual
+                """
+            ]
+        ],
+        "pk": ["a"],
+        "queries": [
+            "select a, b, c, 1 d from ddiff_test_db1",
+            "select a, b, c, 2 d from ddiff_test_db2"
+        ],
+        "upsets": [
+            """
+begin 
+    execute immediate 'drop table ddiff_test_db1';
+exception
+    when others then
+        if sqlcode = -942 then
+            null; -- ORA-00942 table or view does not exist
+        end if;
+end;
+            """,
+            """
+begin 
+    execute immediate 'drop table ddiff_test_db2';
+exception
+    when others then
+        if sqlcode = -942 then
+            null; -- ORA-00942 table or view does not exist
+        end if;
+end;
+            """
+        ],
+        #
+        # level 2
+        #
+        "setup then upset": {
+            "pk": ["a"],
+            "queries": [
+                "select a, b, c from ddiff_test_db1",
+                "select a, b, c from ddiff_test_db2"
+            ],
+        }
     },
 }
 

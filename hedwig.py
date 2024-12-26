@@ -215,17 +215,17 @@ def process(spec_name, spec, stat):
                     if file_mtime > stat[spec_name][file_name]['mtime']:
                         recent_files.append(file_name)
                         #stat_[file_name]['mtime'] = file_mtime
-                if len(all_files) == FILES_PER_MESSAGE:
-                    break
+                #if len(all_files) == FILES_PER_MESSAGE:
+                #    break
 
         if (not args.force and not spec.get('force') and not recent_files) or not all_files:
             logger.info("%s - No files to send", spec_name)
             return return_code
 
         if args.force or spec.get('force'):
-            target_files = all_files
+            target_files = all_files[:FILES_PER_MESSAGE]
         else:
-            target_files = recent_files
+            target_files = recent_files[:FILES_PER_MESSAGE]
 
         names = []
         parts = []
@@ -298,7 +298,9 @@ def process(spec_name, spec, stat):
         else:
             logger.info("%s - Nothing to send", spec_name)
 
-        # set stat data no earlier than all files are successfully processed
+        # keep track of existent files and remove those that no longer exist
+        stat[spec_name] = {k:v for k, v in stat[spec_name].items() if k in all_files}
+        # update stat data no earlier than all files are successfully processed
         for k, v in stat_.items():
             stat[spec_name][k] = v
     except:

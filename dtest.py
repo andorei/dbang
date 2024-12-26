@@ -225,11 +225,17 @@ def process(run, spec_name, spec):
             ), f"Bad spec {spec_name}"
 
         logger.info("test %s; DB = %s", spec_name, spec['source'])
-        logger.debug('\n\n%s\n', spec['query'].strip())
         spec['warnings'] = []
         spec['safe_name'] = re.sub(r'[^\w. \-()\[\]]', '_', spec_name).rstrip('. ').lstrip()
 
         con = connection(spec['source'])
+
+        # Initialize/Setup stuff related to this spec.
+        if spec.get('setup'):
+            logger.debug('-- spec setup')
+            exec_sql(con, spec['setup'])
+
+        logger.debug('\n\n%s\n', spec['query'].strip())
         cur = con.cursor()
         cur.execute(spec['query'])
         spec['cols'] = [d[0] for d in cur.description]
@@ -257,6 +263,11 @@ def process(run, spec_name, spec):
 
         logger.info("Got %s fault rows.", len(rows))
         spec['result'] = len(rows)
+
+        # Finalize/Release stuff related to this spec.
+        if spec.get('upset'):
+            logger.debug('-- spec upset')
+            exec_sql(con, spec['upset'])
 
         con.rollback()
     except:

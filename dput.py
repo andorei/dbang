@@ -756,7 +756,7 @@ def process(spec_name, spec, input_file, stat):
 
         con = connection(spec['source'])
 
-        # Optionally initialize/prepare for data loading.
+        # Initialize/Setup stuff related to this spec.
         if spec.get('setup'):
             logger.debug('-- spec setup')
             exec_sql(con, spec['setup'])
@@ -961,7 +961,7 @@ def process(spec_name, spec, input_file, stat):
         )
         con.commit()
 
-        # Optionally finalize data loading.
+        # Finalize/Release stuff related to this spec.
         if spec.get('upset'):
             logger.debug('-- spec upset')
             exec_sql(con, spec['upset'])
