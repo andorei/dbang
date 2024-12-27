@@ -295,23 +295,31 @@ values (
 {%- endif %}
 )
 """
-SELECT_RESULTS = """
+DELETE_THE_SAME = """
+delete from ddiff_
+where cfg = '{{cfg}}' and spec = '{{spec}}' and run = {{run[0]}}
+    and ({% for col in c['pk'] %}c{{loop.index}}{{"," if not loop.last}}{% endfor %}) in (
+        select {% for col in c['pk'] %}c{{loop.index}}{{"," if not loop.last}}{% endfor %}
+        from (
+            select {% for col in (c['pk'] + c['cols']) %}c{{loop.index}}{{"," if not loop.last}}{% endfor %}
+            from ddiff_
+            where cfg='{{cfg}}' and spec = '{{spec}}' and run = {{run[0]}} and source = '{{c['sources'][0]}}'
+            intersect
+            select {% for col in (c['pk'] + c['cols']) %}c{{loop.index}}{{"," if not loop.last}}{% endfor %}
+            from ddiff_
+            where cfg='{{cfg}}' and spec = '{{spec}}' and run = {{run[0]}} and source = '{{c['sources'][1]}}'
+            )
+    )
+"""
+SELECT_THE_DIFF = """
 with d1 as (
     select {% for col in (c['pk'] + c['cols']) %}c{{loop.index}}{{"," if not loop.last}}{% endfor %}
     from ddiff_
     where cfg='{{cfg}}' and spec = '{{spec}}' and run = {{run[0]}} and source = '{{c['sources'][0]}}'
-    {% if database == 'oracle' %}minus{% else %}except{% endif%}
-    select {% for col in (c['pk'] + c['cols']) %}c{{loop.index}}{{"," if not loop.last}}{% endfor %}
-    from ddiff_
-    where cfg='{{cfg}}' and spec = '{{spec}}' and run = {{run[0]}} and source = '{{c['sources'][1]}}'
 ), d2 as (
     select {% for col in (c['pk'] + c['cols']) %}c{{loop.index}}{{"," if not loop.last}}{% endfor %}
     from ddiff_
     where cfg='{{cfg}}' and spec = '{{spec}}' and run = {{run[0]}} and source = '{{c['sources'][1]}}'
-    {% if database == 'oracle' %}minus{% else %}except{% endif%}
-    select {% for col in (c['pk'] + c['cols']) %}c{{loop.index}}{{"," if not loop.last}}{% endfor %}
-    from ddiff_
-    where cfg='{{cfg}}' and spec = '{{spec}}' and run = {{run[0]}} and source = '{{c['sources'][0]}}'
 )
 {%- if op == '<' or op == '=' %}
 select
@@ -338,6 +346,49 @@ from d2 left join d1 on {% for i, col in c['pk'] %} d1.c{{i}} = d2.c{{i}}{{" and
 {%- endif %}
 order by {% for i, col in c['pk'] %}{{loop.index}}{{"," if not loop.last}}{% endfor %}
 """
+#SELECT_RESULTS = """
+#with d1 as (
+#    select {% for col in (c['pk'] + c['cols']) %}c{{loop.index}}{{"," if not loop.last}}{% endfor %}
+#    from ddiff_
+#    where cfg='{{cfg}}' and spec = '{{spec}}' and run = {{run[0]}} and source = '{{c['sources'][0]}}'
+#    {% if database == 'oracle' %}minus{% else %}except{% endif%}
+#    select {% for col in (c['pk'] + c['cols']) %}c{{loop.index}}{{"," if not loop.last}}{% endfor %}
+#    from ddiff_
+#    where cfg='{{cfg}}' and spec = '{{spec}}' and run = {{run[0]}} and source = '{{c['sources'][1]}}'
+#), d2 as (
+#    select {% for col in (c['pk'] + c['cols']) %}c{{loop.index}}{{"," if not loop.last}}{% endfor %}
+#    from ddiff_
+#    where cfg='{{cfg}}' and spec = '{{spec}}' and run = {{run[0]}} and source = '{{c['sources'][1]}}'
+#    {% if database == 'oracle' %}minus{% else %}except{% endif%}
+#    select {% for col in (c['pk'] + c['cols']) %}c{{loop.index}}{{"," if not loop.last}}{% endfor %}
+#    from ddiff_
+#    where cfg='{{cfg}}' and spec = '{{spec}}' and run = {{run[0]}} and source = '{{c['sources'][0]}}'
+#)
+#{%- if op == '<' or op == '=' %}
+#select
+#    {%- for i, col in c['pk'] %}
+#    coalesce(d1.c{{i}}, d2.c{{i}}) "{{col}}"{{"," if not loop.last or c['cols']}}
+#    {%- endfor %}
+#    {%- for i, col in c['cols'] %}
+#    d1.c{{i}} "DB1 {{col}}", d2.c{{i}} "DB2 {{col}}"{{"," if not loop.last}}
+#    {%- endfor %}
+#from d1 left join d2 on {% for i, col in c['pk'] %} d1.c{{i}} = d2.c{{i}}{{" and " if not loop.last}}{% endfor %}
+#{%- endif %}
+#{%- if op == '=' %}
+#union
+#{%- endif %}
+#{%- if op == '>' or op == '=' %}
+#select
+#    {%- for i, col in c['pk'] %}
+#    coalesce(d1.c{{i}}, d2.c{{i}}) "{{col}}"{{"," if not loop.last or c['cols']}}
+#    {%- endfor %}
+#    {%- for i, col in c['cols'] %}
+#    d1.c{{i}} "DB1 {{col}}", d2.c{{i}} "DB2 {{col}}"{{"," if not loop.last}}
+#    {%- endfor %}
+#from d2 left join d1 on {% for i, col in c['pk'] %} d1.c{{i}} = d2.c{{i}}{{" and " if not loop.last}}{% endfor %}
+#{%- endif %}
+#order by {% for i, col in c['pk'] %}{{loop.index}}{{"," if not loop.last}}{% endfor %}
+#"""
 INSERT_DIFFS = """
 insert into ddiff_diffs_ (
     cfg,spec,run,{% for i, col in (c['pk'] + c['cols'] + c['cols']) %}c{{loop.index}}{{"," if not loop.last}}{% endfor %})
@@ -473,8 +524,10 @@ RUN_REPORT="""
 </html>
 """
 
-select_tpl = Template(SELECT_RESULTS)
+#select_tpl = Template(SELECT_RESULTS)
 insert_tpl = Template(INSERT_RESULTS)
+delete_tpl = Template(DELETE_THE_SAME)
+select_tpl = Template(SELECT_THE_DIFF)
 select_diffs_tpl = Template(SELECT_DIFFS)
 insert_diffs_tpl = Template(INSERT_DIFFS)
 test_report_tpl = Template(TEST_REPORT)
@@ -520,13 +573,64 @@ def connection(src):
     return source['con']
 
 
-def pump(run, spec_name, spec, con0, con, argrows, source_idx):
-    cur = con.cursor()
-    query = spec['queries'][source_idx]
+#def pump(run, spec_name, spec, con0, con, argrows, source_idx):
+#    cur = con.cursor()
+#    query = spec['queries'][source_idx]
+#
+#    cur0 = con0.cursor()
+#    rowcount = 0
+#    query_tpl = None
+#
+#    # to keep the query reasonably short we should split long argrows lists
+#    # into sereval shorter lists and execute several short selects/inserts
+#    if argrows:
+#        parts = ceil(len(argrows) / 200)
+#    else:
+#        parts = 1
+#
+#    logger.debug("-- select %s dataset into ddiff_: %s time(s)", spec['sources'][source_idx], parts)
+#
+#    for part in range(parts):
+#        if argrows:
+#            if query_tpl is None:
+#                query_tpl = Template(query)
+#            query = query_tpl.render(argrows=argrows[part*200:part*200+200])
+#            logger.debug('\n\n%s\n', query.strip())
+#        else:
+#            if part == 0:
+#                logger.debug('\n\n%s\n', query.strip())
+#        cur.execute(query)
+#
+#        if spec.get('cols') is None:
+#            spec['cols'] = [(i + 1, d[0].lower()) for i, d in enumerate(cur.description) if d[0].lower() not in spec['pk']]
+#            spec['pk'] = [(i + 1, d[0].lower()) for i, d in enumerate(cur.description) if d[0].lower() in spec['pk']]
+#            spec['insert'] = insert_tpl.render(c=spec, database=DDIFF_SOURCE['database'])
+#            logger.debug('\n\n%s\n', spec['insert'].strip())
+#
+#        while rowcount < MAX_FETCH_ROWS:
+#            # get next bunch of rows
+#            res = cur.fetchmany(ONE_FETCH_ROWS)
+#            if not res:
+#                break
+#            rowcount += len(res)
+#            # insert next bunch of rows
+#            #logger.info(res)
+#            cur0.executemany(
+#                spec['insert'],
+#                # cx_Oracle requires list here - not a tuple, not a generator expr.
+#                [(CFG_MODULE, spec_name, run[0], spec['sources'][source_idx]) + row for row in res]
+#            )
+#    cur.close()
+#    cur0.close()
+#
+#    return rowcount
 
+
+def pump_and_diff(run, spec_name, spec, con0, con1, con2, argrows):
     cur0 = con0.cursor()
-    rowcount = 0
-    query_tpl = None
+    curs = (con1.cursor(), con2.cursor())
+    rowcounts = [0, 0]
+    query_tpl = [None, None]
 
     # to keep the query reasonably short we should split long argrows lists
     # into sereval shorter lists and execute several short selects/inserts
@@ -535,45 +639,73 @@ def pump(run, spec_name, spec, con0, con, argrows, source_idx):
     else:
         parts = 1
 
-    logger.debug("-- select %s dataset into ddiff_: %s time(s)", spec['sources'][source_idx], parts)
-
     for part in range(parts):
-        if argrows:
-            if query_tpl is None:
-                query_tpl = Template(query)
-            query = query_tpl.render(argrows=argrows[part*200:part*200+200])
-            logger.debug('\n\n%s\n', query.strip())
-        else:
-            if part == 0:
+        rowcounts = [0, 0]
+        for i in (0, 1):
+            logger.debug("-- select %s dataset into ddiff_: %s time(s)", spec['sources'][i], parts)
+            query = spec['queries'][i]
+            if argrows:
+                if query_tpl[i] is None:
+                    query_tpl[i] = Template(spec['queries'][i])
+                query = query_tpl[i].render(argrows=argrows[part*200:part*200+200])
                 logger.debug('\n\n%s\n', query.strip())
-        cur.execute(query)
+            else:
+                if part == 0:
+                    logger.debug('\n\n%s\n', query.strip())
+            curs[i].execute(query)
 
-        if spec.get('cols') is None:
-            spec['cols'] = [(i + 1, d[0].lower()) for i, d in enumerate(cur.description) if d[0].lower() not in spec['pk']]
-            spec['pk'] = [(i + 1, d[0].lower()) for i, d in enumerate(cur.description) if d[0].lower() in spec['pk']]
-            spec['insert'] = insert_tpl.render(c=spec, database=DDIFF_SOURCE['database'])
-            logger.debug('\n\n%s\n', spec['insert'].strip())
+            if spec.get('cols') is None:
+                spec['cols'] = [(i + 1, d[0].lower()) for i, d in enumerate(curs[i].description) if d[0].lower() not in spec['pk']]
+                spec['pk'] = [(i + 1, d[0].lower()) for i, d in enumerate(curs[i].description) if d[0].lower() in spec['pk']]
+                spec['insert'] = insert_tpl.render(c=spec, database=DDIFF_SOURCE['database'])
+                spec['delete'] = \
+                    delete_tpl.render(
+                        cfg=CFG_MODULE,
+                        spec=spec_name,
+                        run=run,
+                        c=spec,
+                        database=DDIFF_SOURCE['database'],
+                        op=spec.get('op', '=')
+                    )
 
-        while rowcount < MAX_FETCH_ROWS:
-            # get next bunch of rows
-            res = cur.fetchmany(ONE_FETCH_ROWS)
-            if not res:
-                break
-            rowcount += len(res)
-            # insert next bunch of rows
-            #logger.info(res)
-            cur0.executemany(
-                spec['insert'],
-                # cx_Oracle requires list here - not a tuple, not a generator expr.
-                [(CFG_MODULE, spec_name, run[0], spec['sources'][source_idx]) + row for row in res]
-            )
-    cur.close()
+            while rowcounts[i] < MAX_FETCH_ROWS:
+                res = curs[i].fetchmany(ONE_FETCH_ROWS)
+                if not res:
+                    break
+                rowcounts[i] += len(res)
+                #logger.info(res)
+                cur0.executemany(
+                    spec['insert'],
+                    # cx_Oracle requires list here - not a tuple, not a generator expr.
+                    [(CFG_MODULE, spec_name, run[0], spec['sources'][i]) + row for row in res]
+                )
+
+        logger.debug('\n\n%s\n', spec['insert'].strip())
+        logger.debug('\n\n%s\n', spec['delete'].strip())
+        # delete equivalent rows from both datasets
+        cur0.execute(spec['delete'])
+        # limit max number of discrepancies
+        cur0.execute(
+            f"""
+            select count(*) 
+            from ddiff_ 
+            where cfg='{CFG_MODULE}' and spec = '{spec_name}' and run = {run[0]}
+            """
+        )
+        diffcount = cur0.fetchone()[0]
+        if diffcount > MAX_DISCREPANCIES * (100 if args.one or args.two else 1):
+            logger.debug(f"-- found {diffcount} discrepancies; go no further")
+            #specs[spec_name]['warnings'].append(f"Found {diffcount} discrepancies; go no further.")
+            break
+
+    curs[0].close()
+    curs[1].close()
     cur0.close()
 
-    return rowcount
+    return rowcounts
 
 
-def process(run, spec_name, spec, con0, argrows):
+def process(run, spec_name, spec, con0, argrows, lvl=1):
     """
     Process spec from config-file.
     """
@@ -594,7 +726,7 @@ def process(run, spec_name, spec, con0, argrows):
             ), f"Bad spec {spec_name}"
 
         if spec.get('cols') is None:
-            logger.info("test %s; DB1 = %s, DB2 = %s", spec_name, spec['sources'][0], spec['sources'][1])
+            logger.info(f"Spec \"{spec_name}\"; DB1 = {spec['sources'][0]}, DB2 = {spec['sources'][1]}, level {lvl}")
             specs[spec_name]['warnings'] = []
             specs[spec_name]['safe_name'] = re.sub(r'[^\w. \-()\[\]]', '_', spec_name).rstrip('. ').lstrip()
 
@@ -612,17 +744,19 @@ def process(run, spec_name, spec, con0, argrows):
         if not args.two or we_have_1st_pass_diffs:
             # Initialize/Setup DB1 stuff related to this spec and level.
             if spec.get('setups') and spec['setups'][0]:
-                logger.debug(f"-- spec {spec['sources'][0]} setup")
+                logger.debug(f"-- spec {spec['sources'][0]} setup, level {lvl}")
                 exec_sql(con1, spec['setups'][0])
             # Get DB1 query results and insert them into ddiff_ table.
-            rowcount1 = pump(run, spec_name, spec, con0, con1, argrows, 0)
+            #rowcount1 = pump(run, spec_name, spec, con0, con1, argrows, 0)
 
             # Initialize/Setup DB2 stuff related to this spec and level.
             if spec.get('setups') and spec['setups'][1]:
-                logger.debug(f"-- spec {spec['sources'][1]} setup")
+                logger.debug(f"-- spec {spec['sources'][1]} setup, level {lvl}")
                 exec_sql(con2, spec['setups'][1])
             # Get DB2 query results and insert them into ddiff_ table.
-            rowcount2 = pump(run, spec_name, spec, con0, con2, argrows, 1)
+            #rowcount2 = pump(run, spec_name, spec, con0, con2, argrows, 1)
+
+            rowcount1, rowcount2 = pump_and_diff(run, spec_name, spec, con0, con1, con2, argrows)
 
             if MAX_FETCH_ROWS <= max(rowcount1, rowcount2):
                 specs[spec_name]['warnings'].append(f"DB1: {rowcount1} rows, DB2: {rowcount2} rows.")
@@ -637,7 +771,7 @@ def process(run, spec_name, spec, con0, argrows):
                     database=DDIFF_SOURCE['database'],
                     op=spec.get('op', '=')
                 )
-            logger.debug('-- select discrepancies from ddiff_')
+            logger.debug(f"-- select discrepancies from ddiff_, level {lvl}")
             logger.debug('\n\n%s\n', select.strip())
             cur0 = con0.cursor()
             cur0.execute(select)
@@ -651,14 +785,15 @@ def process(run, spec_name, spec, con0, argrows):
                         spec[spec_name]['sources'] = spec['sources']
                     if spec.get('op') and not spec[spec_name].get('op'):
                         spec[spec_name]['op'] = spec['op']
-                    process(run, spec_name, spec[spec_name], con0, rows)
+                    logger.info(f"Found {len(rows)} discrepancies at level {lvl}.")
+                    process(run, spec_name, spec[spec_name], con0, rows, lvl+1)
                 else:
                     titles=(x[0] for x in cur0.description)
 
                     if args.one or args.two:
                         # Store the found discrepancies in ddiff_diffs_ table.
                         insert_diffs = insert_diffs_tpl.render(c=spec, database=DDIFF_SOURCE['database'])
-                        logger.debug('-- insert discrepancies into ddiff_diffs_')
+                        logger.debug('-- insert discrepancies into ddiff_diffs_, level {lvl}')
                         logger.debug('\n\n%s\n', insert_diffs.strip())
                         cur0.executemany(
                             insert_diffs,
@@ -678,7 +813,7 @@ def process(run, spec_name, spec, con0, argrows):
                                 col_nums=[i+1+len(spec['pk']) for i in range(0, len(spec['cols']) * 2, 2)],
                                 database=DDIFF_SOURCE['database'],
                             )
-                        logger.debug('-- select persistent discrepancies from ddiff_diffs_')
+                        logger.debug('-- select persistent discrepancies from ddiff_diffs_, level {lvl}')
                         logger.debug('\n\n%s\n', select_diffs.strip())
                         cur0.execute(select_diffs)
                         rows = cur0.fetchall()
@@ -686,7 +821,7 @@ def process(run, spec_name, spec, con0, argrows):
                     if not args.one and rows:
                         # Generate multi-page test reports OR limit number of rows in the report
                         if spec.get(spec_name) and len(rows) > MAX_DISCREPANCIES * (100 if args.one or args.two else 1):
-                            specs[spec_name]['warnings'].append(f"Found {len(rows)} discrepancies, go no deeper.")
+                            specs[spec_name]['warnings'].append(f"Found {len(rows)} discrepancies; go no further.")
                         cols_index = len(spec['pk'])
                         test_report = \
                             test_report_tpl.render(
@@ -714,11 +849,11 @@ def process(run, spec_name, spec, con0, argrows):
 
         # Finalize/Release DB1 stuff related to this spec and level.
         if spec.get('upsets') and spec['upsets'][0]:
-            logger.debug(f"-- spec {spec['sources'][0]} upset")
+            logger.debug(f"-- spec {spec['sources'][0]} upset, level {lvl}")
             exec_sql(con1, spec['upsets'][0])
         # Finalize/Release DB2 stuff related to this spec and level.
         if spec.get('upsets') and spec['upsets'][1]:
-            logger.debug(f"-- spec {spec['sources'][1]} upset")
+            logger.debug(f"-- spec {spec['sources'][1]} upset, level {lvl}")
             exec_sql(con2, spec['upsets'][1])
 
         if not DDIFF_KEEP:
