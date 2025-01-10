@@ -27,6 +27,11 @@ LOGGING = True
 LOG_DIR = os.path.join(os.path.dirname(__file__), '..', 'log')
 # files' encoding defaults to OS locale encoding
 ENCODING = 'UTF-8'
+# defaults to ISO 86101; use '%c' to align with locale
+#DATETIME_FORMAT = '%c'
+# defaults to ISO 86101; use '%x' to align with locale
+#DATE_FORMAT = '%x'
+
 # defaults to "<p>Hello!</p><p/>"
 #HTML_GREETING = "<p>Hello!</p><p/>"
 # defaults to "<p/><p>Have a good day!<br/>dbang Utilities<br/></p>"
@@ -83,6 +88,8 @@ TEST_CSV_GLOB = os.path.join(os.path.dirname(__file__), '..', 'in', 'test_000???
 #        "tags": ['example'],
 #        # send email regardless file(s) timestamp(s)
 #        "force": False,
+#        # jinja2 template to build the message body defaults to "hedwig.<format>.jinja"
+#        "template": "hedwig.html.jinja"
 #        "mail": {
 #            # MANDATORY
 #            "to": ["me@my.self"],
@@ -102,18 +109,20 @@ TEST_CSV_GLOB = os.path.join(os.path.dirname(__file__), '..', 'in', 'test_000???
 #            #    "file": os.path.join(os.path.dirname(os.path.realpath(sys.argv[0])), 'out', 'example.html'),
 #            #    # encoding defaults to ENCODING
 #            #    "encoding": ENCODING,
+#            #    # optional RE to clip text parts
+#            #    "clip": "^.+?ERROR.*\n"
 #            #    # optional list of (pattern, repl) pairs to make substitutions
 #            #    # e.g. replace relative URLs with absolute ones in html file
 #            #    "substitutions": [(r'href="(.+?)"', f'href="http://example.host/out/\\1"')],
+#            #    # optional flag to only read new lines in the file(s) read earlier
+#            #    "tail": True
 #            #},
 #            #    or list of strings and dicts
 #            #"body": [
 #            #    "Body part 1",
 #            #    "Body part 2",
-#            #    {"file": os.path.join(os.path.dirname(os.path.realpath(sys.argv[0])), 'out', 'example.html')}
+#            #    {"file": os.path.join(os.path.dirname(os.path.realpath(sys.argv[0])), 'out', 'example.html')},
 #            #],
-#            # optional text just before the signature
-#            "finally": '<p/><p>See also <a href="https://google.com">google.com</a>.</p>',
 #            # signature defaults to HTML_SIGNATURE
 #            "signature": HTML_SIGNATURE,
 #            # optional attachments
@@ -136,8 +145,6 @@ TEST_CSV_GLOB = os.path.join(os.path.dirname(__file__), '..', 'in', 'test_000???
 #            "greeting": TEXT_GREETING,
 #            # see example_spec.html above for body details
 #            "body": "Hello there!",
-#            # optional text just before the signature
-#            "finally": "\nSee also https://google.com\n",
 #            # signature defaults to TEXT_SIGNATURE
 #            "signature": TEXT_SIGNATURE
 #        }
@@ -420,7 +427,7 @@ specs = {
             "subject": "{dbang} logged errors.html",
             "body": [
                 {
-                    "file": os.path.join(os.path.dirname(__file__), '..', 'log', '????-??-??_*.log'),
+                    "file": os.path.join(LOG_DIR, '????-??-??_*.log'),
                     "tail": True,
                     # find all ERROR reports
                     "clip": r'^\d\d\d\d-\d\d-\d\d \d\d:\d\d:\d\d,\d\d\d:ERROR:[^\n]*\n(?:(?!\d\d\d\d-\d\d-\d\d \d\d:\d\d:\d\d,\d\d\d:)[^\n]*\n)*',

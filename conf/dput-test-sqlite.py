@@ -40,7 +40,7 @@ FIELD_NAMES = ['Code', 'Name']
 FIELD_INDEXES = []
 FIELD_SEP = ';'
 
-def special_ida_test(line_no, line):
+def special_01_ida(line_no, line):
     """
     line_no - number of line in individual file
     line    - line content
@@ -61,6 +61,13 @@ def special_ida_test(line_no, line):
         row = line.rstrip('\n').split(sep=FIELD_SEP)
         row = [row[idx] for idx in FIELD_INDEXES]
     return row
+
+
+def special_03_ida(line):
+    """
+    line    - line content, e.g. AFAFG004Afghanistan
+    """
+    return (line[0:2], line[2:5], line[5:8], line[8:].strip())
 
 
 specs = {
@@ -125,9 +132,9 @@ specs = {
             """
             update ida_lines set
                 istat = 2,
-                ierrm = trim(ierrm || ' Empty field.')
+                ierrm = 'Not a vowel.'
             where iload = ?
-                and substr(c1, 1, 1) not in ('A', 'E', 'I', 'O', 'U')
+                and substr(c2, 1, 1) not in ('A', 'E', 'I', 'O', 'U')
             """
         ],
         "process_actions": ["delete from ida where iload = ?"]
@@ -143,13 +150,12 @@ specs = {
         "skip_lines": 1,
         "process_actions": ["delete from ida where iload = ?"]
     },
-    # there are no stored procedures in sqlite
-    #"csv_proc_test": {
-    #    "tags": ['csv'],
-    #    "file": "test.csv",
-    #    "validate_actions": ['call validate_dput_test'],
-    #    "process_actions": ['call process_dput_test']
-    #},
+    "--csv_proc_test": {  # there are no stored procedures in sqlite
+        "tags": ['csv'],
+        "file": "test.csv",
+        "validate_actions": ['call validate_dput_test'],
+        "process_actions": ['call process_dput_test']
+    },
     "csv_test_test": {
         "tags": ['csv'],
         "source": "sqlite-source",
@@ -239,6 +245,13 @@ specs = {
         "insert_data": lambda row: (row[3], row[0], row[1], row[2]),
         "process_actions": "update ida set istat = 2, imess = 'Just testing' where iload = ?"
     },
+    "nested_00_ida": {
+        "tags": ['ida', 'csv', 'nested'],
+        "file": "test_nested_00.csv",
+        "insert_data": \
+            lambda row: [(row[0], n) for n in row[1].split(',')] if row[1] else [],
+        "process_actions": "delete from ida where iload = ?"
+    },
     "nested_01_ida": {
         "tags": ['ida', 'json', 'nested'],
         "file": "test_nested_01.json",
@@ -291,17 +304,17 @@ specs = {
             "delete from test_region where ? is not null"
         ]
     },
-    "nested_02_test": {
+    "nested_01_keygen": {
         "tags": ['json', 'nested'],
         "file": "test_nested_01.json",
         "encoding": "UTF-8",
         "insert_actions": [
-            "insert into test_region (iload, iline, region, contains) values (?, ?, ?, ?)",
-            "insert into test_countries (iload, iline, code, name) values (?, ?, ?, ?)"
+            "insert into test_region (region_id, region, contains) values (?, ?, ?)",
+            "insert into test_countries (region_id, code, name) values (?, ?, ?)"
         ],
         "insert_data": [
-            lambda iload, iline, row: (iload, iline, row['region'], len(row['countries'])),
-            lambda iload, iline, row: [(iload, iline, n['code'], n['name']) for n in row['countries']] if row['countries'] else []
+            lambda iload, iline, row: (iload * 1000 + iline, row['region'], len(row['countries'])),
+            lambda iload, iline, row: [(iload * 1000 + iline, n['code'], n['name']) for n in row['countries']] if row['countries'] else []
         ],
         "validate_actions": """
             update ida set istat = 2 
@@ -312,8 +325,7 @@ specs = {
                     where contains != (
                             select count(*)
                             from test_countries c
-                            where r.iload = c.iload
-                                and r.iline = c.iline
+                            where r.region_id = c.region_id
                         )
                 )
             """,
@@ -330,19 +342,25 @@ specs = {
         "insert_data": lambda row: [(row['region'], n['code'], n['name']) for n in row['countries']] if row['countries'] else [],
         "process_actions": "delete from ida where iload = ?"
     },
-    "special_ida_test": {
+    "special_01_ida": {
         "tags": ['pass_lines', 'ida'],
         "file": "test_special.csv",
         # just pass lines of the file to insert_data function
         "pass_lines": True,
-        "insert_data": special_ida_test,
+        "insert_data": special_01_ida,
         "process_actions": "delete from ida where iload = ?"
     },
-    "lines_ida_test": {
+    "special_02_ida": {
         "tags": ['pass_lines', 'ida'],
         "file": "test_special.csv",
-        # just pass lines of the file to a column (that should be big enough)
         "pass_lines": True,
+        "process_actions": "delete from ida where iload = ?"
+    },
+    "special_03_ida": {
+        "tags": ['pass_lines', 'ida'],
+        "file": "test_special.dat",
+        "pass_lines": True,
+        "insert_data": special_03_ida,
         "process_actions": "delete from ida where iload = ?"
     },
     "zipped_ida_test": {
@@ -422,8 +440,7 @@ create table if not exists dput_test (
 create table if not exists test_region (
     region varchar(50) not null,
     contains smallint not null,
-    iload int,
-    iline int
+    region_id int
 )
     """,
     """
@@ -434,8 +451,7 @@ create table if not exists test_countries (
     code varchar(3) not null,
     name varchar(50) not null,
     region varchar(50),
-    iload int,
-    iline int
+    region_id int
 )
     """
 ]

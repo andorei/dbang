@@ -35,6 +35,7 @@ parser.add_argument("in_file", nargs="?", default=None, help="input file name")
 
 args = parser.parse_args()
 
+locale.setlocale(locale.LC_TIME, '')
 BASENAME = os.path.basename(sys.argv[0])
 if not os.path.isfile(args.cfg_file) and not os.path.isfile(args.cfg_file + '.py'):
     sys.stderr.write(
@@ -98,12 +99,11 @@ logging.basicConfig(
 )
 logger = logging.getLogger(BASENAME.rsplit('.', 1)[0])
 
-locale.setlocale(locale.LC_TIME, '')
-# datetime format for strftime depends on locale by default
-DATETIME_FORMAT = getattr(cfg, 'DATETIME_FORMAT', '%c')
-DATE_FORMAT = getattr(cfg, 'DATE_FORMAT', '%x')
 # output file encoding by default
 ENCODING = getattr(cfg, 'ENCODING', locale.getpreferredencoding())
+# datetime format for strftime is ISO 86101 by default
+#DATETIME_FORMAT = getattr(cfg, 'DATETIME_FORMAT', '%Y-%m-%d %H:%M:%S%z')
+#DATE_FORMAT = getattr(cfg, 'DATE_FORMAT', '%Y-%m-%d')
 
 CSV_DIALECT = getattr(cfg, 'CSV_DIALECT', 'excel')
 CSV_DELIMITER = getattr(cfg, 'CSV_DELIMITER', csv.get_dialect(CSV_DIALECT).delimiter)
@@ -705,7 +705,7 @@ def process(spec_name, spec, input_file, stat):
             spec['process_actions'] = [spec['process_actions']]
 
         # validate the spec
-        assert file_ext in ('csv', 'xlsx', 'json', 'zip'), \
+        assert file_ext in ('csv', 'xlsx', 'json', 'zip') or spec.get('pass_lines', False), \
             f"Bad file extension \"{file_ext}\" in spec \"{spec_name}\""
         assert sources.get(spec['source']), \
             f"Source \"{spec['source']}\" not defined, spec \"{spec_name}\""
@@ -783,7 +783,7 @@ def process(spec_name, spec, input_file, stat):
                     ifile_path, ifile_name = os.path.split(ifile)
                     assert ifile_name.rsplit('.', 1)[0] in (inner_file, inner_name), \
                         f"Zip file member name is inconsistent with file name {ifile}"
-                    assert inner_ext in ('csv', 'json', 'xlsx'), \
+                    assert inner_ext in ('csv', 'json', 'xlsx') or spec.get('pass_lines', False), \
                         f"Zip file member has bad extension \"{inner_ext}\" in file {ifile}"
                     assert inner_ext != 'json' or spec.get('insert_data'), \
                         f"Missing \"insert_data\" in spec \"{spec_name}\""
@@ -876,7 +876,7 @@ def process(spec_name, spec, input_file, stat):
                         icount[n] += len(idata[n])
                         idata[n].clear()
 
-            if spec.get('pass_lines', False) or in_format in ('csv', 'json'):
+            if in_format in ('csv', 'json') or spec.get('pass_lines', False):
                 file.close()
             elif in_format == 'xlsx':
                 wb.close()

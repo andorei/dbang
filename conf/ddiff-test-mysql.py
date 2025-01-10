@@ -21,12 +21,10 @@ DEBUGGING = True
 LOGGING = True
 # defaults to current working directory
 LOG_DIR = os.path.join(os.path.dirname(__file__), '..', 'log')
-# ddiff database defaults to sqlite database ~/.dbang/ddiff.db
-#!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-# 1) ddiff uses EXCEPT SQL operator which is available since MySQL v8.0.31
-# 2) MySQL v8.1 still has a bug... so use another DB as DDIFF_SOURCE
-#!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-#DDIFF_SOURCE = sources['mysql-source']
+# defaults to ISO 86101; use '%c' to align with locale
+#DATETIME_FORMAT = '%c'
+# defaults to ISO 86101; use '%x' to align with locale
+#DATE_FORMAT = '%x'
 # data sources
 SOURCES = ["ONE", "TWO"]
 

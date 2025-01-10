@@ -92,6 +92,10 @@ logging.basicConfig(
 )
 logger = logging.getLogger(BASENAME.rsplit('.', 1)[0])
 
+# datetime format for strftime is ISO 86101 by default
+DATETIME_FORMAT = getattr(cfg, 'DATETIME_FORMAT', '%Y-%m-%d %H:%M:%S%z')
+DATE_FORMAT = getattr(cfg, 'DATE_FORMAT', '%Y-%m-%d')
+
 # keep data in ddiff_ table after test completion
 DDIFF_KEEP = False
 # number of rows to fetch with one fetch
@@ -308,7 +312,7 @@ where cfg = '{{cfg}}' and spec = '{{spec}}' and run = {{run[0]}}
             select {% for col in (c['pk'] + c['cols']) %}c{{loop.index}}{{"," if not loop.last}}{% endfor %}
             from ddiff_
             where cfg='{{cfg}}' and spec = '{{spec}}' and run = {{run[0]}} and source = '{{c['sources'][1]}}'
-            )
+            ) t
     )
 """
 SELECT_THE_DIFF = """
@@ -875,7 +879,7 @@ def main():
     _temp = datetime.now()
     run = [
         int(_temp.strftime('%Y%m%d%H%M%S')),
-        _temp.strftime('%Y-%m-%d %H:%M:%S'),
+        _temp.strftime(DATETIME_FORMAT),
         _temp.strftime('%Y-%m-%d_%H-%M-%S')
     ]
     logger.info("run %s", run[0])

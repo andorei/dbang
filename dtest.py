@@ -88,6 +88,10 @@ logging.basicConfig(
 )
 logger = logging.getLogger(BASENAME.rsplit('.', 1)[0])
 
+# datetime format for strftime is ISO 86101 by default
+DATETIME_FORMAT = getattr(cfg, 'DATETIME_FORMAT', '%Y-%m-%d %H:%M:%S%z')
+DATE_FORMAT = getattr(cfg, 'DATE_FORMAT', '%Y-%m-%d')
+
 # number of rows to fetch with one fetch
 ONE_FETCH_ROWS = 5000
 
@@ -286,7 +290,7 @@ def main():
     _temp = datetime.now()
     run = [
         int(_temp.strftime('%Y%m%d%H%M%S')),
-        _temp.strftime('%Y-%m-%d %H:%M:%S'),
+        _temp.strftime(DATETIME_FORMAT),
         _temp.strftime('%Y-%m-%d_%H-%M-%S')
     ]
     logger.info("run %s", run[0])

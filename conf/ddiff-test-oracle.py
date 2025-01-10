@@ -21,8 +21,10 @@ DEBUGGING = True
 LOGGING = True
 # defaults to current working directory
 LOG_DIR = os.path.join(os.path.dirname(__file__), '..', 'log')
-# ddiff database defaults to sqlite database ~/.dbang/ddiff.db
-DDIFF_SOURCE = sources['oracle-source']
+# defaults to ISO 86101; use '%c' to align with locale
+#DATETIME_FORMAT = '%c'
+# defaults to ISO 86101; use '%x' to align with locale
+#DATE_FORMAT = '%x'
 # data sources
 SOURCES = ["ONE", "TWO"]
 

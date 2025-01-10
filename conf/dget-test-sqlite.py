@@ -25,10 +25,10 @@ LOGGING = True
 LOG_DIR = os.path.join(os.path.dirname(__file__), '..', 'log')
 # output files' encoding defaults to OS locale encoding
 ENCODING = 'UTF-8'
-# defaults to OS locale format
-#DATE_FORMAT = '%d.%m.%Y'
-# defaults to OS locale format
-#DATETIME_FORMAT = '%d.%m.%Y %H:%M:%S'
+# defaults to ISO 86101; use '%c' to align with locale
+#DATETIME_FORMAT = '%c'
+# defaults to ISO 86101; use '%x' to align with locale
+#DATE_FORMAT = '%x'
 # defaults to 'excel'
 #CSV_DIALECT = 'excel'
 # defaults to the dialect delimiter

@@ -34,6 +34,7 @@ parser.add_argument("spec", nargs="?", default="all", help="spec name, defaults 
 
 args = parser.parse_args()
 
+locale.setlocale(locale.LC_TIME, '')
 BASEDIR, BASENAME = os.path.split(sys.argv[0])
 
 if not os.path.isfile(args.cfg_file) and not os.path.isfile(args.cfg_file + '.py'):
@@ -100,12 +101,11 @@ logging.basicConfig(
 )
 logger = logging.getLogger(BASENAME.rsplit('.', 1)[0])
 
-locale.setlocale(locale.LC_TIME, '')
-# datetime format for strftime depends on locale by default
-DATETIME_FORMAT = getattr(cfg, 'DATETIME_FORMAT', '%c')
-DATE_FORMAT = getattr(cfg, 'DATE_FORMAT', '%x')
 # output file encoding by default
 ENCODING = getattr(cfg, 'ENCODING', locale.getpreferredencoding())
+# datetime format for strftime is ISO 86101 by default
+DATETIME_FORMAT = getattr(cfg, 'DATETIME_FORMAT', '%Y-%m-%d %H:%M:%S%z')
+DATE_FORMAT = getattr(cfg, 'DATE_FORMAT', '%Y-%m-%d')
 
 STAT_FILE = os.path.join(TEMP_DIR, f".{CFG_MODULE}.json")
 # max number of files per message, both inline and attached

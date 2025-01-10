@@ -18,6 +18,10 @@ OUT_DIR = os.path.join(os.path.dirname(__file__), '..', 'out')
 DEBUGGING = True
 LOGGING = True
 LOG_DIR = os.path.join(os.path.dirname(__file__), '..', 'log')
+# defaults to ISO 86101; use '%c' to align with locale
+#DATETIME_FORMAT = '%c'
+# defaults to ISO 86101; use '%x' to align with locale
+#DATE_FORMAT = '%x'
 SOURCE = "mysql-source"
 
 #
