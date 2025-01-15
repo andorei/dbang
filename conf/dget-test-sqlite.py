@@ -64,11 +64,9 @@ pass
 #        "bind_args": {},
 #        # Column titles defaults to col names/aliases from the query.
 #        # You can also either specify the list of titles explicitly
-#        "titles": ['Qwerty', 'Asdfgh']
+#        "header": ['Qwerty', 'Asdfgh']
 #        # or specify the SQL query returning titles. But not both :)
-#        "titles": "select 'Col 1 Title', 'Col 2 Title'"
-#        # ouput directory defaults to OUT_DIR
-#        "out_dir": OUT_DIR,
+#        "header": "select 'Col 1 Title', 'Col 2 Title'"
 #
 #        # optional format specific parameters
 #

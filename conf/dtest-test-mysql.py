@@ -5,9 +5,7 @@ from sources import sources
 
 #
 # Run sanity test with command line
-#
 #     dtest.py conf/dtest-test-mysql.py
-#
 # and see data quality report out/dtest-test-mysql.html.
 #
 
@@ -32,6 +30,12 @@ pass
 specs = {
     "No rows": {
         "tags": ['success'],
+        "doc": "Assert 1 != 1",
+        "source": "mysql-source",
+        "query": "select 42 as answer from dual where 1 != 1"
+    },
+    "--Commented out": {
+        "tags": ['success', 'commented'],
         "doc": "Assert 1 != 1",
         "source": "mysql-source",
         "query": "select 42 as answer from dual where 1 != 1"

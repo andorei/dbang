@@ -45,6 +45,7 @@ ENCODING = 'UTF-8'
 # SETTINGS USED IN specs
 #
 MAIL_TO = hedwig.get('MAIL_TO', 'user@example.net')
+MAIL_TO_LIST = [MAIL_TO]
 
 TEST_HTML_FILE = os.path.join(os.path.dirname(__file__), '..', 'out', 'test.html')
 HTML_TEMPLATE = """<!DOCTYPE html>
@@ -91,11 +92,11 @@ TEST_CSV_GLOB = os.path.join(os.path.dirname(__file__), '..', 'in', 'test_000???
 #        # jinja2 template to build the message body defaults to "hedwig.<format>.jinja"
 #        "template": "hedwig.html.jinja"
 #        "mail": {
-#            # MANDATORY
-#            "to": ["me@my.self"],
-#            # optional
+#            # MANDATORY email address(es): string or list of strings
+#            "to": "me@my.self",
+#            # optional email address(es): string or list of strings
 #            "cc": [],
-#            # optional
+#            # optional email address(es): string or list of strings
 #            "bcc": [],
 #            # MANDATORY
 #            "subject": "Qwerty",
@@ -159,7 +160,7 @@ specs = {
         "tags": ['text'],
         "force": True,
         "mail": {
-            "to": [MAIL_TO],
+            "to": MAIL_TO,
             "subject": "{dbang} hello world",
             "body": "Hello world!\n",
         }
@@ -168,7 +169,7 @@ specs = {
         "tags": ['text', 'commented'],
         "force": True,
         "mail": {
-            "to": [MAIL_TO],
+            "to": MAIL_TO_LIST,
             "subject": "{dbang} commented out",
             "body": "Hello world!\n",
         }
@@ -177,9 +178,9 @@ specs = {
         "tags": ['html'],
         "force": True,
         "mail": {
-            "to": [MAIL_TO],
-            "cc": [MAIL_TO],
-            "bcc": [MAIL_TO],
+            "to": MAIL_TO,
+            "cc": MAIL_TO_LIST,
+            "bcc": MAIL_TO,
             "subject": "{dbang} hello world",
             "body": "<p>Hello world!</p>",
         }
@@ -188,7 +189,7 @@ specs = {
         "tags": ['html'],
         "force": True,
         "mail": {
-            "to": [MAIL_TO],
+            "to": MAIL_TO,
             "subject": "{dbang} html.html",
             "body": [
                 HTML_LOREM_IPSUM,
@@ -200,7 +201,7 @@ specs = {
         "tags": ['html'],
         "force": True,
         "mail": {
-            "to": [MAIL_TO],
+            "to": MAIL_TO,
             "subject": "{dbang} htmls.html",
             "body": [
                 HTML_TEMPLATE.format(title="{dbang} html.html", body=HTML_LOREM_IPSUM),
@@ -213,7 +214,7 @@ specs = {
         "tags": ['text'],
         "force": True,
         "mail": {
-            "to": [MAIL_TO],
+            "to": MAIL_TO,
             "subject": "{dbang} text.text",
             "body": [
                 TEXT_GUADEAMUS,
@@ -225,7 +226,7 @@ specs = {
         "tags": ['text'],
         "force": True,
         "mail": {
-            "to": [MAIL_TO],
+            "to": MAIL_TO,
             "subject": "{dbang} texts.text",
             "body": [
                 TEXT_GUADEAMUS,
@@ -240,7 +241,7 @@ specs = {
         "tags": ['html'],
         "force": True,
         "mail": {
-            "to": [MAIL_TO],
+            "to": MAIL_TO,
             "subject": "{dbang} file.html",
             "body": {"file": TEST_HTML_FILE}
         }
@@ -248,7 +249,7 @@ specs = {
     "files.html": {
         "tags": ['html'],
         "mail": {
-            "to": [MAIL_TO],
+            "to": MAIL_TO,
             "subject": "{dbang} files.html",
             "body": [
                 {"file": TEST_HTML_FILE},
@@ -265,7 +266,7 @@ specs = {
         "tags": ['text'],
         "force": True,
         "mail": {
-            "to": [MAIL_TO],
+            "to": MAIL_TO,
             "subject": "{dbang} file.text",
             "body": {"file": TEST_TEXT_FILE}
         }
@@ -273,7 +274,7 @@ specs = {
     "files.text": {
         "tags": ['text'],
         "mail": {
-            "to": [MAIL_TO],
+            "to": MAIL_TO,
             "subject": "{dbang} files.text",
             "body": [
                 {"file": TEST_TEXT_FILE},
@@ -288,7 +289,7 @@ specs = {
     "glob.text": {
         "tags": ['glob', 'text'],
         "mail": {
-            "to": [MAIL_TO],
+            "to": MAIL_TO,
             "subject": "{dbang} glob.text",
             "body": {"file": TEST_CSV_GLOB}
         }
@@ -299,7 +300,7 @@ specs = {
     "html and file.html": {
         "tags": ['html'],
         "mail": {
-            "to": [MAIL_TO],
+            "to": MAIL_TO,
             "subject": "{dbang} html and file.html",
             "greeting": "<p>Привет!</p><p/>",
             "body": [
@@ -313,7 +314,7 @@ specs = {
     "text and file.text": {
         "tags": ['text'],
         "mail": {
-            "to": [MAIL_TO],
+            "to": MAIL_TO,
             "subject": "{dbang} text and file.text",
             "greeting": "Привет!\n\n",
             "body": [
@@ -330,7 +331,7 @@ specs = {
     "with attachment.html": {
         "tags": ['attachments', 'html'],
         "mail": {
-            "to": [MAIL_TO],
+            "to": MAIL_TO,
             "subject": "{dbang} with attachment.html",
             "body": [
                 "<p>See attached file(s).</p>",
@@ -348,7 +349,7 @@ specs = {
     "with attachments.text": {
         "tags": ['attachments', 'text'],
         "mail": {
-            "to": [MAIL_TO],
+            "to": MAIL_TO,
             "subject": "{dbang} with attachments.text",
             "body": [
                 "See attached file(s).\n",
@@ -371,7 +372,7 @@ specs = {
     "with glob attachments.html": {
         "tags": ['attachments', 'glob', 'html'],
         "mail": {
-            "to": [MAIL_TO],
+            "to": MAIL_TO,
             "subject": "{dbang} with glob attachment.html",
             "body": "<p>See attached file(s).</p>",
             "attachments": [
@@ -389,7 +390,7 @@ specs = {
         "tags": ['clippings', 'text'],
         "force": True,
         "mail": {
-            "to": [MAIL_TO],
+            "to": MAIL_TO,
             "subject": "{dbang} clippings.text",
             "body": [
                 {
@@ -403,7 +404,7 @@ specs = {
         "tags": ['clippings', 'html'],
         "force": True,
         "mail": {
-            "to": [MAIL_TO],
+            "to": MAIL_TO,
             "subject": "{dbang} clippings.html",
             "body": [
                 {
@@ -423,7 +424,7 @@ specs = {
     "logged errors.html": {
         "tags": ['clippings', 'logs', 'html'],
         "mail": {
-            "to": [MAIL_TO],
+            "to": MAIL_TO,
             "subject": "{dbang} logged errors.html",
             "body": [
                 {

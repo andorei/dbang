@@ -872,6 +872,55 @@ def process(run, spec_name, spec, con0, argrows, lvl=1):
     return return_code
 
 
+def sqlite_setup(sqlite):
+
+    # Represent decimals as text without trailing zeros and a trailing dot
+    def adapt_decimal(val):
+        """Adapt decimal.Decimal to """
+        s = str(val)
+        # postgres decimal 0 might turn into smth like 0E-20
+        return s.rstrip('0').rstrip('.') if '.' in s else '0' if val == 0 else s
+
+    # DeprecationWarning: The default date(time) adapter is deprecated as of Python 3.12
+    def adapt_date_iso(val):
+        """Adapt datetime.date to ISO 8601 date."""
+        return val.isoformat()
+
+    def adapt_datetime_iso(val):
+        """Adapt datetime.datetime to timezone-naive ISO 8601 date."""
+        return val.isoformat()
+
+    def adapt_datetime_epoch(val):
+        """Adapt datetime.datetime to Unix timestamp."""
+        return int(val.timestamp())
+
+    sqlite.register_adapter(dec.Decimal, adapt_decimal)
+    sqlite.register_adapter(date, adapt_date_iso)
+    sqlite.register_adapter(datetime, adapt_datetime_iso)
+    sqlite.register_adapter(datetime, adapt_datetime_epoch)
+
+    def convert_decimal(val):
+        """Convert str to decimal.Decaimal object."""
+        return dec.Decimal(val)
+
+    def convert_date(val):
+        """Convert ISO 8601 date to datetime.date object."""
+        return date.fromisoformat(val)
+
+    def convert_datetime(val):
+        """Convert ISO 8601 datetime to datetime.datetime object."""
+        return datetime.fromisoformat(val)
+
+    def convert_timestamp(val):
+        """Convert Unix epoch timestamp to datetime.datetime object."""
+        return datetime.fromtimestamp(val)
+
+    sqlite.register_converter("decimal", convert_date)
+    sqlite.register_converter("date", convert_date)
+    sqlite.register_converter("datetime", convert_datetime)
+    sqlite.register_converter("timestamp", convert_timestamp)
+
+
 def main():
     logger.info("-- start %s", ' '.join(sys.argv))
 
@@ -911,13 +960,7 @@ def main():
                     elif src['database'] == 'sqlite':
                         import sqlite3
                         src['lib'] = sqlite3
-                        # Setup the adaptor in order to save decimals as text
-                        # uniformely without trailing zeros and a trailing dot.
-                        def decimal_to_text(d):
-                            s = str(d)
-                            # postgres decimal 0 might turn into smth like 0E-20
-                            return s.rstrip('0').rstrip('.') if '.' in s else '0' if d == 0 else s
-                        sqlite3.register_adapter(dec.Decimal, decimal_to_text)
+                        sqlite_setup(sqlite3)
                     else:
                         src['lib'] = None
             con0 = connection(DDIFF_SOURCE)

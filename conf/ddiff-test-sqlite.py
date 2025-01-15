@@ -120,8 +120,8 @@ specs = {
     },
     "nested": {
         "tags": ['failure'],
-        "pk": ["c1"],
         "doc": "Intentionally failed",
+        "pk": ["c1"],
         "queries": [
             "select 1 c1, 2 c2, 3 c3, 4 c4, 5 c5 from dual",
             "select 1 c1, 2 c2, 3 c3, 4 c4, 6 c5 from dual"
@@ -167,8 +167,8 @@ specs = {
     },
     "current": {
         "tags": ['failure'],
-        "pk": ["c1"],
         "doc": "Intentionally failed",
+        "pk": ["c1"],
         "queries": [
             """
             select 1 c1, current_timestamp c2, 3 c3 from dual

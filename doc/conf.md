@@ -1,6 +1,6 @@
 # Config Files Structure
 
-Config-files for dbang utilities, except `hedwig`, have the same structure:
+Config-files for **dbang** utilities, except `hedwig`, have the same structure:
 
 ```
 import os
@@ -9,11 +9,15 @@ import sys
 from sources import sources
 
 #
-# SETTINGS USED BY utility
+# SETTINGS USED BY <utility>
 #
-OUT_DIR = os.path.join(os.path.dirname(__file__), '..', 'out')
+# defaults to False
 DEBUGGING = True
+# defaults to False
 LOGGING = True
+# defaults to current working directory
+OUT_DIR = os.path.join(os.path.dirname(__file__), '..', 'out')
+# defaults to current working directory
 LOG_DIR = os.path.join(os.path.dirname(__file__), '..', 'log')
 
 #

@@ -34,6 +34,12 @@ specs = {
         "source": "postgres-source",
         "query": "select 42 as answer from dual where 1 != 1"
     },
+    "--Commented out": {
+        "tags": ['success', 'commented'],
+        "doc": "Assert 1 != 1",
+        "source": "postgres-source",
+        "query": "select 42 as answer from dual where 1 != 1"
+    },
     "Faulty 42": {
         "tags": ['failure'],
         #"doc": "Get unexpected 42",

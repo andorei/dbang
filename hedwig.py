@@ -181,6 +181,17 @@ def process(spec_name, spec, stat):
     """
     return_code = 0
     try:
+        # normalize the spec
+        if isinstance(spec.get('to'), str):
+            spec['to'] = [spec['to']]
+        if spec.get('cc') and isinstance(spec['cc'], str):
+            spec['cc'] = [spec['cc']]
+        if spec.get('bcc') and isinstance(spec['bcc'], str):
+            spec['bcc'] = [spec['bcc']]
+        if not isinstance(spec['mail']['body'], (list, tuple)):
+            spec['mail']['body'] = [spec['mail']['body']]
+
+        # validate the spec
         mail_format = spec_name.split('.')[1]
         assert (
             mail_format in ('html', 'text')
@@ -193,9 +204,6 @@ def process(spec_name, spec, stat):
             and isinstance(spec['mail']['body'], (list, dict, str))
             ), \
             f"Bad spec {spec_name}"
-
-        if not isinstance(spec['mail']['body'], list):
-            spec['mail']['body'] = [spec['mail']['body']]
 
         mail = spec['mail']
 

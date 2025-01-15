@@ -52,7 +52,7 @@ specs = {
        ]
     },
     "--commented-out-42": {
-        "tags": ['success'],
+        "tags": ['success', 'commented'],
         "sources": ["ONE", "TWO"],
         #"doc": "42 == 42"
         "pk": ["answer"],
@@ -63,6 +63,7 @@ specs = {
     },
     "diffs": {
         "tags": ['failure'],
+        "op": "=",
         "doc": "Intentionally failed",
         "pk": ["id"],
         "queries": [
@@ -259,7 +260,7 @@ end;
         #
         # level 2
         #
-        "setup then upset": {
+        "nested-with-setup-and-upset": {
             "pk": ["a"],
             "queries": [
                 "select a, b, c from ddiff_test_db1",

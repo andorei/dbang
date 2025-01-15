@@ -40,7 +40,7 @@ FIELD_NAMES = ['Code', 'Name']
 FIELD_INDEXES = []
 FIELD_SEP = ';'
 
-def special_ida_test(line_no, line):
+def special_01_ida(line_no, line):
     """
     line_no - number of line in individual file
     line    - line content
@@ -80,12 +80,13 @@ specs = {
         "file": "test.csv",
         # optional args go to columns ida.arg1 ... arg9
         #"args": ['one', 'two', '3', '4', '5', '6', '7', '8', '9'],
+        # load data regardless file(s) timestamp(s)
+        #"force": False,
         #
         # the following parameters default to the global ones
         #"encoding": ENCODING,
         #"csv_dialect": CSV_DIALECT,
         #"csv_delimiter": CSV_DELIMITER,
-        #"csv_quotechar": CSV_QUOTECHAR,
         #"skip_lines": 0,
         #"preserve_n_loads": PRESERVE_N_LOADS,
         #
@@ -148,7 +149,7 @@ specs = {
         "tags": ['csv', 'ida', 'skip_lines'],
         "file": "test.csv",
         "skip_lines": 1,
-        "process_actions": "delete from ida where iload = %s"
+        "process_actions": ["delete from ida where iload = %s"]
     },
     "csv_proc_test": {
         "tags": ['csv'],
@@ -347,7 +348,7 @@ specs = {
         "file": "test_special.csv",
         # just pass lines of the file to insert_data function
         "pass_lines": True,
-        "insert_data": special_ida_test,
+        "insert_data": special_01_ida,
         "process_actions": "delete from ida where iload = %s"
     },
     "special_02_ida": {

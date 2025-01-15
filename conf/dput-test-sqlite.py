@@ -80,12 +80,13 @@ specs = {
         "file": "test.csv",
         # optional args go to columns ida.arg1 ... arg9
         #"args": ['one', 'two', '3', '4', '5', '6', '7', '8', '9'],
+        # load data regardless file(s) timestamp(s)
+        #"force": False,
         #
         # the following parameters default to the global ones
         #"encoding": ENCODING,
         #"csv_dialect": CSV_DIALECT,
         #"csv_delimiter": CSV_DELIMITER,
-        #"csv_quotechar": CSV_QUOTECHAR,
         #"skip_lines": 0,
         #"preserve_n_loads": PRESERVE_N_LOADS,
         #
@@ -153,8 +154,8 @@ specs = {
     "--csv_proc_test": {  # there are no stored procedures in sqlite
         "tags": ['csv'],
         "file": "test.csv",
-        "validate_actions": ['call validate_dput_test'],
-        "process_actions": ['call process_dput_test']
+        "validate_actions": 'call validate_dput_test(?)',
+        "process_actions": 'call process_dput_test(?)'
     },
     "csv_test_test": {
         "tags": ['csv'],
@@ -170,7 +171,7 @@ specs = {
     "csv_parts_test": {
         "tags": ['csv', 'ida'],
         "file": "test_000???.csv",
-        "process_actions": ["delete from ida where iload = ?"]
+        "process_actions": "delete from ida where iload = ?"
     },
     "json_ida_test": {
         "tags": ['ida'],
@@ -419,7 +420,6 @@ specs = {
         ]
     },
 }
-
 
 sources["sqlite-source"]["setup"] = sources["sqlite-source"].get("setup", []) + [
     """

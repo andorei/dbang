@@ -63,6 +63,7 @@ specs = {
     },
     "diffs": {
         "tags": ['failure'],
+        "op": "=",
         "doc": "Intentionally failed",
         "pk": ["id"],
         "queries": [

@@ -52,7 +52,7 @@ specs = {
        ]
     },
     "--commented-out-42": {
-        "tags": ['success'],
+        "tags": ['success', 'commented'],
         "sources": ["ONE", "TWO"],
         #"doc": "42 == 42"
         "pk": ["answer"],
@@ -63,6 +63,7 @@ specs = {
     },
     "diffs": {
         "tags": ['failure'],
+        "op": "=",
         "doc": "Intentionally failed",
         "pk": ["id"],
         "queries": [
