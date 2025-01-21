@@ -881,16 +881,23 @@ def process(spec_name, spec, input_file, stat):
             elif in_format == 'xlsx':
                 wb.close()
 
+            # insert the rest of prepared data before removing the file
+            for n in range(len(idata)):
+                if idata[n]:
+                    IDA_INSERT_MANY_ROWS[source['database']](cur, istmt[n], idata[n])
+                    icount[n] += len(idata[n])
+                    idata[n].clear()
+            con.commit()
+
             if args.delete or spec.get('delete') or file_ext == 'zip':
                 os.remove(ifile)
             logger.info("%s", ifile)
 
         # insert the rest of prepared data
-        for n in range(len(idata)):
-            if idata[n]:
-                IDA_INSERT_MANY_ROWS[source['database']](cur, istmt[n], idata[n])
-                icount[n] += len(idata[n])
-        con.commit()
+        #for n in range(len(idata)):
+        #    if idata[n]:
+        #        IDA_INSERT_MANY_ROWS[source['database']](cur, istmt[n], idata[n])
+        #        icount[n] += len(idata[n])
         logger.info("Loaded %s of %s rows with iload=%s", str(icount).strip('[]'), count - spec.get('skip_lines', 0), iload)
 
         # 2) validate loaded data
