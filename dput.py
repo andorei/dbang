@@ -718,7 +718,8 @@ def process(spec_name, spec, input_file, stat):
         assert all(isinstance(i, str) for i in spec.get('process_actions', [])), \
             f"Bad \"process_actions\" in spec \"{spec_name}\""
         assert spec.get('insert_actions') is None or \
-            len(spec.get('insert_actions', [])) == len(spec.get('insert_data', [])), \
+            spec.get('insert_data') is None or \
+            len(spec['insert_actions']) == len(spec['insert_data']), \
             f"\"insert_actions\" and \"insert_data\" do not match in spec \"{spec_name}\""
         assert not args.arg or (
             isinstance(args.arg, list) 
