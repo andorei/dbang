@@ -1,0 +1,55 @@
+[
+    {
+        "category": "Empty nothing",
+        "doc": "Just nothing.",
+        "en_fr": [],
+        "en_fr_ru": []
+    },
+    {
+        "category": "Cardinal directions",
+        "doc": "Four cardinal directions.",
+        "en_fr": [
+            {"en": "North", "fr": "nord"},
+            {"en": "East", "fr": "est"},
+            {"en": "South", "fr": "sud"},
+            {"en": "West", "fr": "ouest"}
+        ],
+        "en_fr_ru": []
+    },
+    {
+        "category": "Rainbow colors",
+        "doc": "Seven rainbow colors.",
+        "en_fr": [
+            {"en": "red", "fr": "rouge"},
+            {"en": "orange", "fr": "orange"},
+            {"en": "yellow", "fr": "jaune"},
+            {"en": "green", "fr": "vert"},
+            {"en": "light blue", "fr": "bleu clair"},
+            {"en": "blue", "fr": "bleu"},
+            {"en": "violet", "fr": "violet"}
+        ],
+        "en_fr_ru": [
+            ["red", "rouge", "красный"],
+            ["orange", "orange", "оранжевый"],
+            ["yellow", "jaune", "жёлтый"],
+            ["green", "vert", "зеленый"],
+            ["light blue", "bleu clair", "голубой"],
+            ["blue", "bleu", "синий"],
+            ["violet", "violet", "фиолетовый"]
+        ]
+    },
+    {
+        "category": "Days of week",
+        "doc": "Days of week starting with Monday.",
+        "en_fr": [],
+        "en_fr_ru": [
+            ["Monday", "lundi", "понедельник"],
+            ["Tuesday", "mardi", "вторник"],
+            ["Wednesday", "mercredi", "среда"],
+            ["Thursday", "jeudi", "четверг"],
+            ["Friday", "vendredi", "пятница"],
+            ["Saturday", "samedi", "суббота"],
+            ["Sunday", "dimanche", "воскресенье"]
+        ]
+    }
+]

@@ -3,30 +3,33 @@ import sys
 
 from sources import sources
 
-
 #
 # Run sanity test against sqlite DB with command line
-#
-#     ddiff.py ddiff-test-sqlite
-#
+#     ddiff.py conf/ddiff-test-sqlite.py
 # and find test data discrepancies report in out/ddiff-test-sqlite.html
 #
 
-
-# MANDATORY CONSTANTS used by ddiff.py
-
-# DB where intermediate data is kept and processed
-DDIFF_SOURCE = sources['sqlite-source']
-
-
-# OPTIONAL CONSTANTS
-
-# Directory where discrepancies report is saved
-#OUT_DIR = os.path.join(os.path.dirname(os.path.realpath(sys.argv[0])), 'out')
-
+#
+# SETTINGS USED BY ddiff
+#
+# defaults to current working directory
+OUT_DIR = os.path.join(os.path.dirname(__file__), '..', 'out')
+# defaults to False
 DEBUGGING = True
-#LOGSTDOUT = False
+# defaults to False
+LOGGING = True
+# defaults to current working directory
+LOG_DIR = os.path.join(os.path.dirname(__file__), '..', 'log')
+# defaults to ISO 86101; use '%c' to align with locale
+#DATETIME_FORMAT = '%c'
+# defaults to ISO 86101; use '%x' to align with locale
+#DATE_FORMAT = '%x'
+# data sources
+SOURCES = ["ONE", "TWO"]
 
+#
+# SETTINGS USED IN specs
+#
 # Next two sources are those with data to test for discrepancies
 sources["ONE"] = sources["sqlite-source"]
 sources["TWO"] = sources["sqlite-source"]
@@ -38,7 +41,19 @@ sources["TWO"] = sources["sqlite-source"]
 specs = {
     # just sanity testing
     "42": {
+        "tags": ['success'],
         "sources": ["ONE", "TWO"],
+        #"doc": "42 == 42"
+        "pk": ["answer"],
+        "queries": [
+            "select 42 as answer from dual",
+            "select 42 as answer from dual"
+       ]
+    },
+    "--commented-out-42": {
+        "tags": ['success', 'commented'],
+        "sources": ["ONE", "TWO"],
+        #"doc": "42 == 42"
         "pk": ["answer"],
         "queries": [
             "select 42 as answer from dual",
@@ -46,8 +61,9 @@ specs = {
        ]
     },
     "diffs": {
-        "sources": ["ONE", "TWO"],
+        "tags": ['failure'],
         "op": "=",
+        "doc": "Intentionally failed",
         "pk": ["id"],
         "queries": [
             """
@@ -62,9 +78,10 @@ specs = {
             """
        ]
     },
-    "diffs_lt": {
-        "sources": ["ONE", "TWO"],
+    "diffs.lt": {
+        "tags": ['success'],
         "op": "<",
+        "doc": "Dataset 1 is subset of or equal to Dataset 2",
         "pk": ["id"],
         "queries": [
             """
@@ -81,9 +98,10 @@ specs = {
             """
        ]
     },
-    "diffs_gt": {
-        "sources": ["ONE", "TWO"],
+    "diffs.gt": {
+        "tags": ['success'],
         "op": ">",
+        "doc": "Dataset 1 is equal to or superset of Dataset 2",
         "pk": ["id"],
         "queries": [
             """
@@ -101,13 +119,16 @@ specs = {
        ]
     },
     "nested": {
-        "sources": ["ONE", "TWO"],
+        "tags": ['failure'],
+        "doc": "Intentionally failed",
         "pk": ["c1"],
         "queries": [
             "select 1 c1, 2 c2, 3 c3, 4 c4, 5 c5 from dual",
             "select 1 c1, 2 c2, 3 c3, 4 c4, 6 c5 from dual"
         ],
+        #
         # level 2
+        #
         "nested": {
             "pk": ["c1", "c2"],
             "queries": [
@@ -122,7 +143,9 @@ specs = {
                 where 1 = {{argrows[0][0]}}
                 """
             ],
+            #
             # level 3
+            #
             "nested": {
                 "pk": ["c1", "c2", "c3"],
                 "queries": [
@@ -143,7 +166,8 @@ specs = {
         }
     },
     "current": {
-        "sources": ["ONE", "TWO"],
+        "tags": ['failure'],
+        "doc": "Intentionally failed",
         "pk": ["c1"],
         "queries": [
             """
@@ -166,38 +190,43 @@ specs = {
             """
        ]
     },
+    "nested-with-setup-and-upset": {
+        "tags": ['setup', 'upset'],
+        "doc": "First setup DB stuff and then release it.",
+        "setups": [
+            """
+create table if not exists ddiff_test_db1 as
+select 1 a, 'hello' b, current_date c
+from dual
+            """,
+            """
+create table if not exists ddiff_test_db2 as
+select 1 a, 'hello' b, current_date c
+from dual
+            """,
+        ],
+        "pk": ["a"],
+        "queries": [
+            "select a, b, c, 1 d from ddiff_test_db1",
+            "select a, b, c, 2 d from ddiff_test_db2"
+        ],
+        "upsets": [
+            "drop table if exists ddiff_test_db1",
+            "drop table if exists ddiff_test_db2"
+        ],
+        #
+        # level 2
+        #
+        "nested-with-setup-and-upset": {
+            "pk": ["a"],
+            "queries": [
+                "select a, b, c from ddiff_test_db1",
+                "select a, b, c from ddiff_test_db2"
+            ],
+        }
+    },
 }
 
 sources['sqlite-source']['setup'] = sources['sqlite-source'].get('setup', []) + [
-    """
-create table if not exists ddiff_(
-    cfg text,
-    spec text,
-    run bigint,
-    source text,
-    c1 text, c2 text, c3 text, c4 text, c5 text, c6 text, c7 text, c8 text, c9 text, c10 text,
-    c11 text, c12 text, c13 text, c14 text, c15 text, c16 text, c17 text, c18 text, c19 text, c20 text,
-    c21 text, c22 text, c23 text, c24 text, c25 text, c26 text, c27 text, c28 text, c29 text, c30 text,
-    c31 text, c32 text, c33 text, c34 text, c35 text, c36 text, c37 text, c38 text, c39 text, c40 text,
-    c41 text, c42 text, c43 text, c44 text, c45 text, c46 text, c47 text, c48 text, c49 text, c50 text
-)
-    """,
-    """
-create table if not exists ddiff_diffs_(
-    cfg text,
-    spec text,
-    run bigint,
-    c1 text, c2 text, c3 text, c4 text, c5 text, c6 text, c7 text, c8 text, c9 text, c10 text,
-    c11 text, c12 text, c13 text, c14 text, c15 text, c16 text, c17 text, c18 text, c19 text, c20 text,
-    c21 text, c22 text, c23 text, c24 text, c25 text, c26 text, c27 text, c28 text, c29 text, c30 text,
-    c31 text, c32 text, c33 text, c34 text, c35 text, c36 text, c37 text, c38 text, c39 text, c40 text,
-    c41 text, c42 text, c43 text, c44 text, c45 text, c46 text, c47 text, c48 text, c49 text, c50 text,
-    c51 text, c52 text, c53 text, c54 text, c55 text, c56 text, c57 text, c58 text, c59 text, c60 text,
-    c61 text, c62 text, c63 text, c64 text, c65 text, c66 text, c67 text, c68 text, c69 text, c70 text,
-    c71 text, c72 text, c73 text, c74 text, c75 text, c76 text, c77 text, c78 text, c79 text, c80 text,
-    c81 text, c82 text, c83 text, c84 text, c85 text, c86 text, c87 text, c88 text, c89 text, c90 text,
-    c91 text, c92 text, c93 text, c94 text, c95 text, c96 text, c97 text, c98 text, c99 text, c100 text
-)
-    """,
     "create table if not exists dual as select 'X' as dummy"
 ]

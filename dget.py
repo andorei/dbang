@@ -1,404 +1,544 @@
-#!/usr/bin/python3
+#!/usr/bin/env python3
 
 import os
 import sys
+import locale
+import re
 import csv
+import glob
 import argparse
 import logging
 import decimal as dec
-from datetime import date, datetime
+from datetime import date, datetime, time
 
 from openpyxl import Workbook, styles
 from openpyxl.cell import WriteOnlyCell
-from jinja2 import Template, Environment, FileSystemLoader, select_autoescape
+from jinja2 import (
+    #Template,
+    Environment,
+    FileSystemLoader,
+    select_autoescape
+)
 
 
-VERSION = '0.2'
+VERSION = '0.3'
 
 parser = argparse.ArgumentParser(
     description="Retrieve data from DB into file, as specified in cfg-file specs.",
     epilog="Thanks for using %(prog)s!"
 )
 
-parser.add_argument('-v', '--version', action='version', version='%(prog)s ' + VERSION)
+parser.add_argument("-v", "--version", action="version", version="%(prog)s " + VERSION)
+parser.add_argument("-a", "--arg", action="append", help="pass one or more arguments to SQL query")
+parser.add_argument("-u", "--user", action="store", 
+                    default=os.environ.get('USER', os.environ.get('USERNAME', 'DBANG')), 
+                    help="set username")
+parser.add_argument("-t", "--trace", action="store_true", help="enable tracing")
 parser.add_argument("cfg_file", help="cfg-file name")
 parser.add_argument("spec", nargs="?", default="all", help="spec name, defaults to \"all\"")
+parser.add_argument("out_file", nargs="?", default=None, help="output file name")
 
 args = parser.parse_args()
 
-BASENAME = os.path.basename(sys.argv[0])
-SCRIPT_DIR = os.path.dirname(os.path.realpath(sys.argv[0]))
-CFG_DIR = os.path.join(SCRIPT_DIR, 'cfg')
-CFG_NAME = args.cfg_file.split('.')[0]
-CFG_FILE = f"{CFG_NAME}.py"
-if not os.path.isfile(os.path.join(CFG_DIR, CFG_FILE)):
+locale.setlocale(locale.LC_TIME, '')
+BASEDIR, BASENAME = os.path.split(sys.argv[0])
+
+if not os.path.isfile(args.cfg_file) and not os.path.isfile(args.cfg_file + '.py'):
     sys.stderr.write(
         parser.format_usage() + \
-        f"{BASENAME}: error: cfg-file not found: {CFG_FILE}\n"
+        f"{BASENAME}: error: cfg-file not found: {args.cfg_file}\n"
     )
     sys.exit(1)
 
+TEMPLATES_DIR = os.path.join(BASEDIR, 'conf')
+if not os.path.isdir(TEMPLATES_DIR):
+    TEMPLATES_DIR = os.path.join(BASEDIR, '..', 'conf')
+    if not os.path.isdir(TEMPLATES_DIR):
+        sys.stderr.write(
+            parser.format_usage() + \
+            f"{BASENAME}: error: templates dir not found: {TEMPLATES_DIR}\n"
+        )
+        sys.exit(1)
+
+USER_DIR = os.path.expanduser('~')
+if not os.path.isdir(USER_DIR):
+    sys.stderr.write(
+        parser.format_usage() + \
+        f"{BASENAME}: error: user's home dir not found: {USER_DIR}\n"
+    )
+    sys.exit(1)
+TEMP_DIR = os.path.join(USER_DIR, '.dbang')
+if not os.path.isdir(TEMP_DIR):
+    os.mkdir(TEMP_DIR)
+
+CUR_DIR = os.getcwd()
+CFG_DIR = os.path.abspath(os.path.dirname(args.cfg_file) or CUR_DIR)
+CFG_MODULE = os.path.basename(args.cfg_file).rsplit('.', 1)[0]
 sys.path.append(CFG_DIR)
-cfg = __import__(CFG_NAME)
+cfg = __import__(CFG_MODULE)
 sources = cfg.sources
 specs = cfg.specs
 
 SPEC = args.spec
-if SPEC not in [*specs.keys(), 'all']:
+# filter out specs commented out with leading --
+specs = {k:v for k,v in specs.items() if not k.startswith('--')}
+if SPEC not in [*specs.keys(), 'all', *(tag for val in specs.values() if val.get('tags') for tag in val['tags'])]:
     sys.stderr.write(
         parser.format_usage() + \
         f"{BASENAME}: error: spec not found in cfg-file: {SPEC}\n"
     )
     sys.exit(1)
 
-BASENAME = os.path.basename(sys.argv[0]).split('.')[0]
-LOG_FILE = os.path.join(SCRIPT_DIR, 'log', f'{date.today().isoformat()}_{BASENAME}.log')
-OUT_DIR = getattr(cfg, 'OUT_DIR', os.path.join(SCRIPT_DIR, 'out'))
+OUT_DIR = getattr(cfg, 'OUT_DIR', CUR_DIR)
+if not os.path.isdir(OUT_DIR):
+    sys.stderr.write(
+        parser.format_usage() + \
+        f"{BASENAME}: error: out dir not found: {OUT_DIR}\n"
+    )
+    sys.exit(1)
+
 DEBUGGING = getattr(cfg, 'DEBUGGING', False)
-LOGSTDOUT = getattr(cfg, 'LOGSTDOUT', False)
+LOGGING = getattr(cfg, 'LOGGING', DEBUGGING)
+LOG_DIR = getattr(cfg, 'LOG_DIR', CUR_DIR)
+if LOGGING and not os.path.isdir(LOG_DIR):
+    sys.stderr.write(
+        parser.format_usage() + \
+        f"{BASENAME}: error: log dir not found: {LOG_DIR}\n"
+    )
+    sys.exit(1)
+LOG_FILE = os.path.join(LOG_DIR, f"{date.today().isoformat()}_{BASENAME.rsplit('.', 1)[0]}.log")
+logging.basicConfig(
+    filename=LOG_FILE,
+    #encoding='utf-8', # encoding needs Python >=3.9
+    format="%(asctime)s:%(levelname)s:%(process)s:%(message)s",
+    level=logging.DEBUG if DEBUGGING else logging.INFO if LOGGING else logging.CRITICAL + 1
+)
+logger = logging.getLogger(BASENAME.rsplit('.', 1)[0])
+
+# output file encoding by default
+ENCODING = getattr(cfg, 'ENCODING', locale.getpreferredencoding())
+# datetime format for strftime is ISO 86101 by default
+DATETIME_FORMAT = getattr(cfg, 'DATETIME_FORMAT', '%Y-%m-%d %H:%M:%S%z')
+DATE_FORMAT = getattr(cfg, 'DATE_FORMAT', '%Y-%m-%d')
+
+CSV_DIALECT = getattr(cfg, 'CSV_DIALECT', 'excel')
+CSV_DELIMITER = getattr(cfg, 'CSV_DELIMITER', csv.get_dialect(CSV_DIALECT).delimiter)
 
 # number of rows to fetch with one fetch
 ONE_FETCH_ROWS = 5000
-
-logging.basicConfig(
-    filename=None if LOGSTDOUT else LOG_FILE,
-    format='%(asctime)s:%(levelname)s:%(name)s:%(message)s',
-    level=logging.INFO
-)
-logger = logging.getLogger(BASENAME)
+# number of gets preserved per entity
+PRESERVE_N_TRACES = getattr(cfg, 'PRESERVE_N_TRACES', 10)
 
 env = Environment(
-    loader=FileSystemLoader(CFG_DIR),
+    loader=FileSystemLoader([TEMPLATES_DIR, CFG_DIR]),
     autoescape=select_autoescape(['html', 'xml'])
 )
 
 
 def exec_sql(con, sql):
+    """
+    Execute sql statement(s) using connection con.
+    """
     if sql:
         cur = con.cursor()
         if isinstance(sql, str):
-            if DEBUGGING:
-                logger.info('\n\n' + sql.strip() + '\n')
+            logger.debug('\n\n%s\n', sql.strip())
             cur.execute(sql)
         elif isinstance(sql, (list, tuple)):
             for stmt in sql:
-                if DEBUGGING:
-                    logger.info('\n\n' + stmt.strip() + '\n')
+                assert isinstance(stmt, str), f"Expected SQL statement: {stmt}"
+                logger.debug('\n\n%s\n', stmt.strip())
                 cur.execute(stmt)
+        else:
+            assert False, f"Expected SQL statement: {sql}"
         cur.close()
 
 
 def connection(src):
-    if not sources[src].get('con'):
-        if sources[src].get('con_string'):
-            sources[src]['con'] = \
-                sources[src]['lib'].connect(sources[src]['con_string'], **sources[src].get('con_kwargs', dict()))
+    """"
+    Get database connection by name src.
+    """
+    if isinstance(src, str):
+        source = sources[src]
+    elif isinstance(src, dict):
+        source = src
+    if not source.get('con'):
+        if source.get('con_string'):
+            source['con'] = \
+                source['lib'].connect(source['con_string'], **source.get('con_kwargs', dict()))
         else:
-            sources[src]['con'] = \
-                sources[src]['lib'].connect(**sources[src]['con_kwargs'])
-        if sources[src].get('setup'):
-            if DEBUGGING:
-                logger.info('-- setup')
-            exec_sql(sources[src]['con'], sources[src].get('setup'))
-    return sources[src]['con']
+            source['con'] = \
+                source['lib'].connect(**source['con_kwargs'])
+        if source.get('setup'):
+            logger.debug('-- setup')
+            exec_sql(source['con'], source.get('setup'))
+    return source['con']
 
 
-def rows_from_cursor(cur, first_row=None):
+def csv_row(row, dec_sep='.'):
+    return tuple(
+        '' if f == None else \
+        f.strftime(DATETIME_FORMAT) if isinstance(f, datetime) else \
+        f.strftime(DATE_FORMAT) if isinstance(f, date) else \
+        f if not isinstance(f, (float, dec.Decimal)) else \
+        str(f).replace('.', dec_sep) \
+        for f in row
+        )
+
+
+def jinja_row(row):
+    return tuple(
+        f.strftime(DATETIME_FORMAT) if isinstance(f, datetime) else \
+        f.strftime(DATE_FORMAT) if isinstance(f, date) else \
+        float(f) if isinstance(f, dec.Decimal) else \
+        f
+        for f in row
+        )
+
+
+def xlsx_row(row):
+    # TypeError: Excel does not support timezones in datetimes. The tzinfo in the datetime/time object must be set to None.
+    return tuple(
+        f.replace(tzinfo=None) if isinstance(f, (time, datetime)) else \
+        f
+        for f in row
+        )
+
+
+def rows_from_cursor(cur, first_row=None, fetch_rows=0):
     rowcount = 0
     if first_row:
-        yield first_row
+        yield jinja_row(first_row)
         rowcount += 1
-    while True:
-        rows = cur.fetchmany(ONE_FETCH_ROWS)
-        if not rows:
-            break
-        for row in rows:
-            yield row
-            rowcount += 1
-    logger.info(f"Got {rowcount} rows.")
+        while True:
+            how_many = \
+                ONE_FETCH_ROWS if fetch_rows == 0 else \
+                fetch_rows - 1 if fetch_rows <= ONE_FETCH_ROWS else \
+                ONE_FETCH_ROWS if ONE_FETCH_ROWS <= (fetch_rows - 1 - rowcount) else \
+                fetch_rows - 1 - ONE_FETCH_ROWS
+            rows = cur.fetchmany(how_many)
+            if not rows:
+                break
+            for row in rows:
+                yield jinja_row(row)
+                rowcount += 1
+            if fetch_rows and rowcount == fetch_rows:
+                break
+    logger.info("Got %s rows.", rowcount)
 
 
-def process(run, spec_name, spec):
+def file_stem(stem, parts, seqn, user):
+    filename_dict = dict()
+    for part in parts:
+        if part == 'date':
+            filename_dict['date'] = date.today().isoformat()
+        elif part == 'datetime':
+            filename_dict['datetime'] = datetime.now().strftime('%Y-%m-%d-%H-%M-%S')
+        elif part == 'seqn':
+            filename_dict['seqn'] = seqn
+        elif part == 'user':
+            filename_dict['user'] = user
+    return stem % filename_dict
+
+
+def finalize_file(filename, file_format, compress=False):
+    _filename = filename.rstrip('out') + file_format
+    if compress:
+        import zipfile
+        _zipfilename = _filename + '.zip'
+        with zipfile.ZipFile(_zipfilename, 'w') as zf:
+            zf.write(filename, arcname=os.path.basename(_filename))
+        os.remove(filename)
+    else:
+        # os.rename: On Windows, if dst exists a FileExistsError is always raised.
+        if os.path.isfile(_filename):
+            os.remove(_filename)
+        os.rename(filename, _filename)
+
+
+def trace(ts, status):
+    """
+    Create or rename trace file to show current status.
+    """
+    if not args.trace:
+        return
+
+    safe_spec = re.sub(r'[^\w. \-()\[\]]', '_', args.spec).rstrip('. ').lstrip()
+    safe_user = re.sub(r'[^\w. \-()\[\]]', '_', args.user).rstrip('. ').lstrip()
+    this_trace = f"dget#{safe_spec}#{safe_user}#{ts}#"
+    this_trace_glob = os.path.join(TEMP_DIR, this_trace + '?')
+    this_trace_file = os.path.join(TEMP_DIR, this_trace + str(status))
+
+    traces = glob.glob(this_trace_glob)
+    assert len(traces) < 2, f"Too many traces {this_trace_glob}: {len(traces)}"
+
+    if len(traces) == 0:
+        with open(this_trace_file, 'w', encoding="UTF-8"):
+            pass
+        all_traces_glob = os.path.join(TEMP_DIR, f"dget#{safe_spec}#{safe_user}#??????????????#?")
+        for i, trace_file in enumerate(sorted(glob.glob(all_traces_glob), reverse=True)):
+            if i >= PRESERVE_N_TRACES:
+                os.remove(trace_file)
+    elif len(traces) == 1 and traces[0] != this_trace_file:
+        os.rename(traces[0], this_trace_file)
+    logger.debug("trace %s", this_trace + str(status))
+
+
+def process(run, spec_name, spec, out_file):
+    """
+    Process spec from config-file.
+    """
+    return_code = 0
+    con = None
     try:
-        out_base, out_format = spec_name.rsplit('.', 1)
-        assert (
-            isinstance(spec, dict)
-            and (
-                out_format in ('html', 'csv', 'xlsx', 'json')
-                or (
-                    isinstance(spec['template'], str)
-                    and spec['template'].endswith(".jinja")
-                    and os.path.isfile(os.path.join(CFG_DIR, spec['template']))
-                )
-            )
-            and {*spec.keys()} >= {'source', 'query'}
-            and isinstance(spec['source'], str)
-            and isinstance(spec['query'], str)
-            and sources.get(spec['source'])
-            ), f"Bad spec {spec_name}"
+        assert out_file or spec.get('file'), \
+            f"Output file not specified, spec \"{spec_name}\""
+        out_base, out_format = (out_file or spec.get('file')).rsplit('.', 1)
+        if out_format == 'zip':
+            out_compress = True
+            out_base, out_format = out_base.rsplit('.', 1)
+        else:
+            out_compress = False
+        assert out_format in ('html', 'csv', 'xlsx', 'json') or (
+            isinstance(spec['template'], str) and
+            spec['template'].endswith(".jinja") and
+            os.path.isfile(os.path.join(CFG_DIR, spec['template']))
+            ), f"Bad format \"{in_format}\" or missing \"template\" in spec \"{spec_name}\""
+        assert sources.get(spec['source']), \
+            f"Source \"{spec['source']}\" not defined, spec \"{spec_name}\""
+        assert 'query' in spec.keys() and isinstance(spec['query'], str), \
+            f"Missing or bad \"query\" in spec \"{spec_name}\""
+        assert args.arg is None or (
+            isinstance(args.arg, list) 
+            and isinstance(spec.get('bind_args'), dict) 
+            and len(args.arg) == len(spec['bind_args'])
+            ), f"Command line args and \"bind_args\" do not match, spec {spec_name}"
 
-        logger.info(f"{spec_name}; DB = {spec['source']}")
+        logger.info("%s; DB = %s", spec_name, spec['source'])
 
         con = connection(spec['source'])
+
+        # Initialize/Setup stuff related to this spec.
+        if spec.get('setup'):
+            logger.debug('-- spec setup')
+            exec_sql(con, spec['setup'])
+
+        # Retrieve data.
         cur = con.cursor()
 
-        if isinstance(spec.get('titles'), str):
-            query = spec['titles']
-            if DEBUGGING:
-                logger.info('\n\n' + query.strip() + '\n')
+        if isinstance(spec.get('header'), str):
+            query = spec['header']
+            logger.debug('\n\n%s\n', query.strip())
             cur.execute(query)
             # if query returns query execute it
             if len(cur.description) == 1 and cur.description[0][0] == 'query':
                 query = cur.fetchone()[0]
-                if DEBUGGING:
-                    logger.info('\n\n' + query.strip() + '\n')
+                logger.debug('\n\n%s\n', query.strip())
                 cur.execute(query)
-            spec['titles'] = cur.fetchone()
+            spec['header'] = cur.fetchone()
 
         query = spec['query']
-        if DEBUGGING:
-            logger.info('\n\n' + query.strip() + '\n')
-        cur.execute(query)
+        qargs = spec.get('bind_args', {})
+        if args.arg:
+            qargs = {k: v for k,v in zip(qargs.keys(), [type(v)(a) for v, a in zip(qargs.values(), args.arg)])}
+        logger.debug('\n\n%s\n\n%s\n', query.strip(), str(qargs))
+        cur.execute(query, qargs)
         # if query returns query execute it
         if len(cur.description) == 1 and cur.description[0][0] == 'query':
             query = cur.fetchone()[0]
-            if DEBUGGING:
-                logger.info('\n\n' + query.strip() + '\n')
+            logger.debug('\n\n%s\n', query.strip())
             cur.execute(query)
 
-        if not spec.get('titles'):
-            spec['titles'] = [d[0] for d in cur.description]
+        if not spec.get('header'):
+            spec['header'] = [d[0] for d in cur.description]
 
-        dec_sep = spec.get('dec_separator', '.')
         out_path = spec.get('out_dir', OUT_DIR)
+        rows_per_file = spec.get('rows_per_file', 0)
+        encoding = spec.get(f"{out_format}.encoding", ENCODING)
+
+        filename_parts = re.findall(r'%\((.+?)\)', out_base)
+        assert not filename_parts or \
+            set(filename_parts) <= {'date', 'datetime', 'seqn', 'user'}, \
+            f"Bad named fields in filename: {spec['file']}"
 
         file = None
+        seqn = 0
         rowcount = 0
         if out_format in ('json', 'html'):
             #
-            # create .json or .html file using one-piece jinja2 template file
+            # create .json or .html file(s) using jinja2 template
             #
-            first_row = cur.fetchone()
-            if first_row:
-                template = env.get_template(spec.get('template') or f'dget.{out_format}.jinja')
-                out_file = os.path.join(out_path, f"{out_base}.out")
-                file = open(out_file, "w", encoding=spec.get("encoding", cfg.ENCODING), errors='replace')
-                file.write(
-                    template.render(
-                        run=run,
-                        title=spec.get('title', out_base),
-                        titles=spec['titles'],
-                        rows=rows_from_cursor(cur, first_row),
-                        zip=zip
+            template = env.get_template(spec.get(f"{out_format}.template", f"dget.{out_format}.jinja"))
+            while True:
+                first_row = cur.fetchone()
+                if not first_row:
+                    break
+                else:
+                    out_file = file_stem(out_base, filename_parts, seqn, args.user) + '.out'
+                    seqn += 1
+                    out_file = os.path.join(out_path, out_file)
+                    file = open(out_file, 'w', encoding=encoding, errors='replace')
+                    file.write(
+                        template.render(
+                            run=run,
+                            title=spec.get(f"{out_format}.title", spec_name),
+                            titles=spec['header'],
+                            source=spec['source'],
+                            dec_sep=spec.get(f"{out_format}.dec_separator", '.'),
+                            rows=rows_from_cursor(cur, first_row, rows_per_file),
+                            zip=zip
+                        )
                     )
-                )
-                file.close()
-                _out_file = out_file.rstrip('out') + out_format
-                # os.rename: On Windows, if dst exists a FileExistsError is always raised.
-                if os.path.isfile(_out_file):
-                    os.remove(_out_file)
-                os.rename(out_file, _out_file)
-
-        #elif out_format == 'json':
-        #    #
-        #    # create .json file using BEGIN, NEXT, END jinja2 templates from config-file
-        #    #
-        #    while True:
-        #        rows = cur.fetchmany(ONE_FETCH_ROWS)
-        #        if not rows:
-        #            break
-        #        rowcount += len(rows)
-        #        # begin
-        #        if file is None:
-        #            out_file = os.path.join(out_path, f"{out_base}.out")
-        #            file = open(out_file, "w", encoding=spec.get("encoding", cfg.ENCODING), errors='replace')
-        #            template = Template(spec.get("json_begin", cfg.JSON_BEGIN))
-        #            file.write(template.render(run=run, title=spec.get('title', out_base), titles=spec['titles']))
-        #            template = Template(spec.get("json_next", cfg.JSON_NEXT))
-        #        # next
-        #        file.write(template.render(titles=spec['titles'], rows=rows, zip=zip))
-        #    logger.info(f"Got {rowcount} rows.")
-        #    # end
-        #    file.write(spec.get("json_end", cfg.JSON_END))
-        #
-        #    file.close()
-        #    _out_file = out_file.rstrip('out') + out_format
-        #    # os.rename: On Windows, if dst exists a FileExistsError is always raised.
-        #    if os.path.isfile(_out_file):
-        #        os.remove(_out_file)
-        #    os.rename(out_file, _out_file)
-        #
-        #elif out_format == 'html':
-        #    #
-        #    # create .html file using BEGIN, NEXT, END jinja2 templates from config-file
-        #    #
-        #    while True:
-        #        rows = cur.fetchmany(ONE_FETCH_ROWS)
-        #        if not rows:
-        #            break
-        #        rowcount += len(rows)
-        #        # begin
-        #        if file is None:
-        #            out_file = os.path.join(out_path, f"{out_base}.out")
-        #            file = open(out_file, "w", encoding=spec.get("encoding", cfg.ENCODING), errors='replace')
-        #            template = Template(spec.get('html_begin', cfg.HTML_BEGIN))
-        #            file.write(template.render(run=run, title=spec.get('title', out_base), titles=spec['titles']))
-        #            template = Template(spec.get('html_next', cfg.HTML_NEXT))
-        #        # next
-        #        prepared_rows = (
-        #            (
-        #                ('', '0') if f == None else \
-        #                (f.strftime(cfg.PY_DATE_FORMAT), 'd') if isinstance(f, date) else \
-        #                (f.strftime(cfg.PY_DATETIME_FORMAT), 'd') if isinstance(f, datetime) else \
-        #                (str(f), 's') if not isinstance(f, (int, float, dec.Decimal)) else \
-        #                (str(f).replace('.', dec_sep), 'n') \
-        #                for f in row
-        #            ) for row in rows
-        #        )
-        #        file.write(template.render(rows=prepared_rows))
-        #    logger.info(f"Got {rowcount} rows.")
-        #    # end
-        #    file.write(spec.get("html_end", cfg.HTML_END))
-        #
-        #    file.close()
-        #    _out_file = out_file.rstrip('out') + out_format
-        #    # os.rename: On Windows, if dst exists a FileExistsError is always raised.
-        #    if os.path.isfile(_out_file):
-        #        os.remove(_out_file)
-        #    os.rename(out_file, _out_file)
+                    file.close()
+                    finalize_file(out_file, out_format, out_compress)
 
         elif out_format == 'csv':
             #
-            # create .csv file line by line
+            # create .csv file(s) line by line
             #
+            dec_separator = spec.get('csv.dec_separator', '.')
             while True:
                 rows = cur.fetchmany(ONE_FETCH_ROWS)
                 if not rows:
                     break
-                rowcount += len(rows)
-                # begin
-                if file is None:
-                    out_file = os.path.join(out_path, f"{out_base}.out")
-                    file = open(out_file, "w", encoding=spec.get("encoding", cfg.ENCODING), errors='replace')
-                    csv_writer = \
-                        csv.writer(
-                            file,
-                            dialect=spec.get('dialect', cfg.CSV_DIALECT),
-                            delimiter=spec.get('delimiter', cfg.CSV_DELIMITER),
-                            lineterminator='\n'
-                        )
-                    csv_writer.writerow(spec['titles'])
-                # next
                 for row in rows:
-                    csv_writer.writerow(
-                        '' if f == None else \
-                        f.strftime(cfg.PY_DATE_FORMAT) if isinstance(f, date) else \
-                        f.strftime(cfg.PY_DATETIME_FORMAT) if isinstance(f, datetime) else \
-                        f if not isinstance(f, (float, dec.Decimal)) or dec_sep == '.' else \
-                        str(f).replace('.', dec_sep) \
-                        for f in row
-                    )
-            logger.info(f"Got {rowcount} rows.")
-            # end
-            pass
-
-            file.close()
-            _out_file = out_file.rstrip('out') + out_format
-            # os.rename: On Windows, if dst exists a FileExistsError is always raised.
-            if os.path.isfile(_out_file):
-                os.remove(_out_file)
-            os.rename(out_file, _out_file)
+                    # begin file
+                    if file is None:
+                        out_file = file_stem(out_base, filename_parts, seqn, args.user) + '.out'
+                        seqn += 1
+                        out_file = os.path.join(out_path, out_file)
+                        file = open(out_file, 'w', encoding=encoding, errors='replace')
+                        csv_writer = \
+                            csv.writer(
+                                file,
+                                dialect=spec.get('csv.dialect', CSV_DIALECT),
+                                delimiter=spec.get('csv.delimiter', CSV_DELIMITER),
+                                lineterminator='\n'
+                            )
+                        csv_writer.writerow(spec['header'])
+                    # next line
+                    csv_writer.writerow(csv_row(row, dec_separator))
+                    rowcount += 1
+                    if rows_per_file and rowcount % rows_per_file == 0:
+                        # end file
+                        file.close()
+                        file = None
+                        finalize_file(out_file, out_format, out_compress)
+            if file:
+                # end file
+                file.close()
+                file = None
+                finalize_file(out_file, out_format, out_compress)
+            logger.info("Got %s rows.", rowcount)
 
         elif out_format == 'xlsx':
             #
-            # create .xlsx file row by row
+            # create .xlsx file(s) row by row
             #
             wb = None
             while True:
                 rows = cur.fetchmany(ONE_FETCH_ROWS)
                 if not rows:
                     break
-                rowcount += len(rows)
-                # begin
-                if wb is None:
-                    out_file = os.path.join(out_path, f"{out_base}.out")
-                    wb = Workbook(write_only=True)
-                    ws = wb.create_sheet()
-                    font = styles.Font(bold=True)
-                    titles = [WriteOnlyCell(ws, value=title) for title in spec['titles']]
-                    for title in titles:
-                        title.font = font
-                    ws.append(titles)
-                # next
                 for row in rows:
-                    ws.append(
-                        '' if f == None else \
-                        f.strftime(cfg.PY_DATE_FORMAT) if isinstance(f, date) else \
-                        f.strftime(cfg.PY_DATETIME_FORMAT) if isinstance(f, datetime) else \
-                        f if not isinstance(f, (float, dec.Decimal)) or dec_sep == '.' else \
-                        str(f).replace('.', dec_sep) \
-                        for f in row
-                    )
-            logger.info(f"Got {rowcount} rows.")
-            # end
-            wb.save(out_file)
-
-            wb.close()
-            _out_file = out_file.rstrip('out') + out_format
-            # os.rename: On Windows, if dst exists a FileExistsError is always raised.
-            if os.path.isfile(_out_file):
-                os.remove(_out_file)
-            os.rename(out_file, _out_file)
+                    # begin file
+                    if wb is None:
+                        out_file = file_stem(out_base, filename_parts, seqn, args.user) + '.out'
+                        seqn += 1
+                        out_file = os.path.join(out_path, out_file)
+                        wb = Workbook(write_only=True)
+                        ws = wb.create_sheet()
+                        font = styles.Font(bold=True)
+                        titles = [WriteOnlyCell(ws, value=title) for title in spec['header']]
+                        for title in titles:
+                            title.font = font
+                        ws.append(titles)
+                    # next row
+                    ws.append(xlsx_row(row))
+                    rowcount += 1
+                    if rows_per_file and rowcount % rows_per_file == 0:
+                        # end file
+                        wb.save(out_file)
+                        wb.close()
+                        wb = None
+                        finalize_file(out_file, out_format, out_compress)
+            if wb:
+                # end file
+                wb.save(out_file)
+                wb.close()
+                wb = None
+                finalize_file(out_file, out_format, out_compress)
+            logger.info("Got %s rows.", rowcount)
 
         cur.close()
-        con.rollback()
 
+        # Finalize/Release stuff related to this spec.
+        if spec.get('upset'):
+            logger.debug('-- spec upset')
+            exec_sql(con, spec['upset'])
+
+        con.commit()
     except:
         logger.exception('EXCEPT')
         if con:
             con.rollback()
+        return_code = 1
+    return return_code
 
 
 def main():
-    logger.info(f'-- start {" ".join(sys.argv)}')
+    logger.info("-- start %s", ' '.join(sys.argv))
 
+    error_count = 0
     _temp = datetime.now()
+    _ts = _temp.strftime('%Y%m%d%H%M%S')
     run = [
         int(_temp.strftime('%Y%m%d%H%M%S')),
         _temp.strftime('%Y-%m-%d %H:%M:%S'),
         _temp.strftime('%Y-%m-%d_%H-%M-%S')
     ]
+    trace(_ts, 0)
 
     for spec_name, spec in specs.items():
-        if SPEC in (spec_name, 'all'):
+        if SPEC in (spec_name, 'all', *spec.get('tags', [])):
+            spec['source'] = spec.get('source', getattr(cfg, 'SOURCE', None))
+            if spec['source'] is None:
+                logger.error('Skipping spec "%s" with no source', spec_name)
+                error_count += 1
+                continue
             src = sources[spec['source']]
             if src.get('lib') is None:
-                if src["database"] == "oracle":
-                    import cx_Oracle
-                    src["lib"] = cx_Oracle
-                elif src["database"] == "postgres":
-                    import psycopg2
-                    from psycopg2 import extras
-                    src["lib"] = psycopg2
-                elif src["database"] == "mysql":
+                if src['database'] == 'oracle':
+                    #import cx_Oracle
+                    #src['lib'] = cx_Oracle
+                    import oracledb
+                    src['lib'] = oracledb
+                    if src.get('oracledb_thick_mode'):
+                        src['lib'].init_oracle_client()
+                elif src['database'] == 'postgres':
+                    import psycopg
+                    src['lib'] = psycopg
+                elif src['database'] == 'mysql':
                     import mysql.connector
-                    src["lib"] = mysql.connector
-                elif src["database"] == "sqlite":
+                    src['lib'] = mysql.connector
+                elif src['database'] == 'sqlite':
                     import sqlite3
-                    src["lib"] = sqlite3
+                    src['lib'] = sqlite3
                 else:
-                    src["lib"] = None
-            process(run, spec_name, spec)
+                    src['lib'] = None
+            error_count += process(run, spec_name, spec, args.out_file)
 
     for src in sources.values():
         if src.get('con') is not None:
             if src.get('upset'):
-                if DEBUGGING:
-                    logger.info('-- upset')
+                logger.debug("-- upset")
                 exec_sql(src['con'], src.get('upset'))
             src['con'].close()
+            src['con'] = None
 
-    logger.info('-- done')
+    trace(_ts, 1 if error_count == 0 else 2)
+    logger.info("-- done %s", f" WITH {error_count} ERRORS" if error_count else '')
+    sys.exit(error_count)
 
 
 if __name__ == '__main__':
