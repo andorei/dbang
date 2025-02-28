@@ -182,14 +182,15 @@ def process(spec_name, spec, stat):
     return_code = 0
     try:
         # normalize the spec
-        if isinstance(spec.get('to'), str):
-            spec['to'] = [spec['to']]
-        if spec.get('cc') and isinstance(spec['cc'], str):
-            spec['cc'] = [spec['cc']]
-        if spec.get('bcc') and isinstance(spec['bcc'], str):
-            spec['bcc'] = [spec['bcc']]
-        if not isinstance(spec['mail']['body'], (list, tuple)):
-            spec['mail']['body'] = [spec['mail']['body']]
+        if spec.get('mail'):
+            if spec['mail'].get('to') and isinstance(spec['mail']['to'], str):
+                spec['mail']['to'] = [spec['mail']['to']]
+            if spec['mail'].get('cc') and isinstance(spec['mail']['cc'], str):
+                spec['mail']['cc'] = [spec['mail']['cc']]
+            if spec['mail'].get('bcc') and isinstance(spec['mail']['bcc'], str):
+                spec['mail']['bcc'] = [spec['mail']['bcc']]
+            if spec['mail'].get('body') and not isinstance(spec['mail']['body'], (list, tuple)):
+                spec['mail']['body'] = [spec['mail']['body']]
 
         # validate the spec
         mail_format = spec_name.split('.')[1]
@@ -211,6 +212,7 @@ def process(spec_name, spec, stat):
         stat_ = dict()
         all_files = []
         recent_files = []
+        text_body = False
         for part in spec['mail']['body'] + spec['mail'].get('attachments', []):
             if isinstance(part, dict) and part.get('file'):
                 for file_name in sorted(glob.glob(part['file'])):
@@ -222,18 +224,20 @@ def process(spec_name, spec, stat):
                         stat_[file_name] = {'mtime': file_mtime, 'offset': stat[spec_name][file_name]['offset']}
                     if file_mtime > stat[spec_name][file_name]['mtime']:
                         recent_files.append(file_name)
-                        #stat_[file_name]['mtime'] = file_mtime
-                #if len(all_files) == FILES_PER_MESSAGE:
-                #    break
+            elif isinstance(part, str):
+                text_body = True
 
-        if (not args.force and not spec.get('force') and not recent_files) or not all_files:
-            logger.info("%s - No files to send", spec_name)
-            return return_code
-
-        if args.force or spec.get('force'):
+        text_body = text_body and not all_files
+        force_send = args.force or spec.get('force')
+        if force_send:
             target_files = all_files[:FILES_PER_MESSAGE]
         else:
             target_files = recent_files[:FILES_PER_MESSAGE]
+
+        logger.debug(f"{text_body = } {force_send = } {target_files = }")
+        if not (force_send and text_body) and not target_files:
+            logger.info("%s - No files to send", spec_name)
+            return return_code
 
         names = []
         parts = []
@@ -327,13 +331,13 @@ def main():
     else:
         stat = dict()
 
-    for spec_name, spec in cfg.specs.items():
+    for spec_name, spec in specs.items():
         if spec_name not in stat:
             stat[spec_name] = {}
         if SPEC in (spec_name, 'all', *spec.get('tags', [])):
             error_count += process(spec_name, spec, stat)
 
-    stat = {k: v for k, v in stat.items() if k in cfg.specs}
+    stat = {k: v for k, v in stat.items() if k in specs}
     with open(STAT_FILE, 'w', encoding='UTF-8') as f:
         f.write(json.dumps(stat))
 

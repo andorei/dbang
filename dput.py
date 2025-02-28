@@ -1044,7 +1044,7 @@ def main():
             src['con'].close()
             src['con'] = None
 
-    stat = {k: v for k, v in stat.items() if k in cfg.specs}
+    stat = {k: v for k, v in stat.items() if k in specs}
     with open(STAT_FILE, 'w', encoding='UTF-8') as f:
         f.write(json.dumps(stat))
 
