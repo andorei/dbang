@@ -1,6 +1,8 @@
 # Data Sources
 
-Data sources, or databases, used by the utilities are defined in dict `sources` in file `conf/sources.py`.
+	version 0.3
+
+Data sources, or databases, used by the utilities are defined in dictionary `sources` in file `conf/sources.py`.
 
 Here is an example:
 
@@ -38,6 +40,6 @@ A data source is described with the following parameters:
 
 * `"database"` - DBMS type, one of `"sqlite"`, `"postgres"`, `"oracle"`, `"mysql"`, used to choose the Python database API module;
 * `"con_string"` - DB connection string, used as the first argument when calling `<module>.connect()`;
-* `"con_kwargs"` - optional dict of named arguments, used when when calling `<module>.connect()`;
+* `"con_kwargs"` - optional dict of named arguments, used when calling `<module>.connect()`;
 * `"setup"` - optional list of strings with SQL statements to execute once upon connecting to the DB;
-* `"upset"` - optional list of strings with SQL statements to execute once before closing connectiio to the DB.
+* `"upset"` - optional list of strings with SQL statements to execute once before closing connection to the DB.
