@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="content-type" content="text/html; charset=UTF-8">
+    <style type="text/css">
+        table {border-collapse: collapse; border: 1px solid navy;}
+        th {padding: 5px; text-align: left; border: 1px solid navy; background:lightblue;}
+        td {padding: 5px; text-align: left; border: 1px solid navy;}
+    </style>
+<title>Data Discrepancies Report ({{cfg}}): {{test|escape}}</title>
+</head>
+<body>
+<h2><a href="{{cfg}}.html">Data Discrepancies Report ({{cfg}})</a>: {{test}}</h2>
+{%- if rows %}
+{%- for row in rows %}
+{%- if loop.first %}
+{%- if doc %}
+<p>{{doc}}</p>
+{%- endif %}
+<p>
+{{run[1]}}. DB1 = {{sources[0]}}, DB2 = {{sources[1]}}. <span style="color:red;">Found {{rows|length}} discrepancies. </span>
+{% for warn in warnings %}{{warn}} {% endfor %}
+</p>
+<table>
+<tr>{% for title in titles %}<th>{{title}}</th>{% endfor %}</tr>
+{%- endif %}
+<tr>
+{%- for col in row %}
+    {%- if col is iterable and col is not string %}
+        {%- if col[0] == col[1] %}
+        <td>{{col[0] if col[0] is not none else '[NULL]'}}</td><td>{{col[1] if col[1] is not none else '[NULL]'}}</td>
+        {%- else%}
+        <td style="color:red;">{{col[0] if col[0] is not none else '[NULL]'}}</td><td style="color:red;">{{col[1] if col[1] is not none else '[NULL]'}}</td>
+        {%- endif %}
+    {%- else %}
+        <td>{{(col if col is not none else '[NULL]')|escape}}</td>
+    {%- endif %}
+{%- endfor %}
+</tr>
+{%- if loop.last %}
+</table>
+{%- endif %}
+{%- endfor %}
+{%- else %}
+<p style="color:green;">Found 0 discrepancies.</p>
+{%- endif %}
+</body>
+</html>

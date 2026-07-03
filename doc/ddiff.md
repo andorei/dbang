@@ -1,6 +1,6 @@
 # ddiff. Detecting and Reporting Data Discrepancies in Two Databases
 
-	version 0.3
+	version 0.4.0
 
 The `ddiff` utility executes queries from config file specs against two databases, compares the results and reports found discrepancies in HTML format.
 
@@ -74,7 +74,7 @@ month      pos_code count_ sum_item sum_qty sum_amount
 2023-03-01       52  13140 10230677    4088    5235635
 ```
 
-As you can see, the aggregate rows with sales for March 2023 at POS 52 differ by columns `sum_qty` and `sum_amount`. There are no discrepancies in sales data for other months and POS.
+The aggregate rows with sales for March 2023 at POS 52 differ by columns `sum_qty` and `sum_amount`. There are no discrepancies in sales data for other months and POS.
 
 To find the rows in both databases that cause this difference, we should select rows where the first date of month and POS code equals the `(month, pos_code)` from the aggregate rows that differ. We will select 13140 rows from each database (see column `count_`) and compare them.
 
@@ -139,11 +139,7 @@ import sys
 from sources import sources
 
 
-# MANDATORY constants used by ddiff.py
 OUT_DIR = os.path.join(os.path.dirname(os.path.realpath(sys.argv[0])), 'out')
-
-# Optional constants used in specs below
-# ...
 
 specs = {
     "sales": {
@@ -205,13 +201,11 @@ specs = {
 }
 ```
 
-Queries in a `ddiff` spec are actually jinja2-templates. Before executing level 2 queries, the templates are rendered to build the list of (date, POS code) for `in` operator in `where` clause. Variable `argrows` contains the rows with discrepancies detected at the upper level.
+Queries in a `ddiff` spec are actually Jinja2 templates. Before executing level 2 queries, the templates are rendered to build the list of (date, POS code) for `in` operator in `where` clause. Variable `argrows` contains the rows with discrepancies detected at the upper level.
 
 You can specify as many levels of aggregation in a spec as you find appropriate. The more levels you define, the less rows are retrieved from databases at each level.
 
-Global variable `OUT_DIR` in a `ddiff` config file sets the directory for report files.
-
-Test config files `ddiff-test-<source>.py` contains comments on all the spec parameters. Read it carefully and familiarize yourself with all the parameters.
+See test config files `test/ddiff_test_<database>.py` to familiarize yourself with all the parameters.
 
 ## Detecting Discrepancies in Two Passes
 
@@ -231,7 +225,7 @@ This approach is supported by the `ddiff` command line options:
 -2, --two      find discrepancies and intersect them with the stored
 ```
 
-To see how it works, let's look at the spec `"current"` from the config file `ddiff-test-sqlite.py`:
+To see how it works, let's look at the spec `"current"` from the config file `test/ddiff_test_sqlite.py`:
 
 ```
 spec = {
@@ -279,13 +273,13 @@ Notice that the discrepancy in row `c1 = 1` is due to the fact that column `c2` 
 Let's execute the spec so that to exclude current data changes from the discrepancies report. First run:
 
 ```
-ddiff.py -1 ddiff-test-sqlite current
+ddiff.py -1 test/ddiff_test_sqlite current
 ```
 
 And second run:
 
 ```
-ddiff.py -2 ddiff-test-sqlite current
+ddiff.py -2 test/ddiff_test_sqlite current
 ```
 
 The second run reported the following discrepancies:
@@ -329,24 +323,25 @@ Options `--one` and `--two` are covered in [Detecting Discrepancies in Two Passe
 
 ## Config File Parameters
 
-Config file parameters are variables with names in uppercase that define context for executing specs from that config file. See also [Config Files Structure](conf.md).
+Config file parameters are variables with names in uppercase that define context for executing specs from that config file. See also [Config Files Structure](config.md).
 
 The `ddiff` config file parameters are described below.
 
-| Parameter         | Default Value           | Description                                                          |
-| ----------------- | ----------------------- | -------------------------------------------------------------------- |
-| `DEBUGGING`       | `False`                 | Debugging mode?                                                      |
-| `LOGGING`         | = DEBUGGING             | Write to log file?                                                   |
-| `LOG_DIR`         | `./`                    | Path to the directory with log files.                                |
-| `OUT_DIR`         | `./`                    | Path to the directory with discrepancy reports files.                |
-| `DATETIME_FORMAT` | `"%Y-%m-%d %H:%M:%S%z"` | Datetime format; defaults to ISO 86101.                              |
-| `DATE_FORMAT`     | `"%Y-%m-%d"`            | Date format; defaults to ISO 86101.                                  |
-| `SOURCES`*        |                         | Optional list of two data source names defined in file `sources.py`. |
+| Parameter              | Default Value | Description                                                                                             |
+| ---------------------- | ------------- | ------------------------------------------------------------------------------------------------------- |
+| `DEBUGGING`            | `False`       | Debugging mode?                                                                                         |
+| `LOGGING`              | = DEBUGGING   | Write to log file?                                                                                      |
+| `PARALLEL_WORKERS`     | 1             | Number of threads to run specs in parallel.                                                             |
+| `LOG_DIR`              | `./`          | Path to the directory with log files.                                                                   |
+| `OUT_DIR`              | `./`          | Path to the directory with discrepancy reports files.                                                   |
+| `SOURCES`*             |               | Optional list of two data source names defined in file `sources.py`.                                    |
+| `RUN_REPORT_TEMPLATE`  |               | Filename of custom Jinja2-template for run report. See sample file `cfg/dtest_sample_run.html.jinja`.   |
+| `SPEC_REPORT_TEMPLATE` |               | Filename of custom Jinja2-template for spec report. See sample file `cfg/dtest_sample_spec.html.jinja`. |
 \* config file parameter marked with asterisk may be overridden at spec level with a corresponding spec parameter.
 
 ## Spec Parameters
 
- Specs are found in a config file in the `specs` dictionary and contain **spec parameters**. See also [Config Files Structure](conf.md).
+ Specs are found in a config file in the `specs` dictionary and contain **spec parameters**. See also [Config Files Structure](config.md).
 
 Spec parameters for `ddiff` utility are described below. If not explicitly described as mandatory, a spec parameter is optional and may be omitted.
 

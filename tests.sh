@@ -5,7 +5,7 @@ else
     export DBANGDB=$1
 fi
 
-ddiff.py conf/ddiff-test-$DBANGDB all
-dget.py conf/dget-test-$DBANGDB all
-dput.py --force conf/dput-test-$DBANGDB all
-dtest.py conf/dtest-test-$DBANGDB all
+ddiff.py test/ddiff_test_$DBANGDB all
+dget.py test/dget_test_$DBANGDB all
+dput.py --force test/dput_test_$DBANGDB all
+dtest.py test/dtest_test_$DBANGDB all

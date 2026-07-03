@@ -1,0 +1,77 @@
+import os
+import sys
+
+from sources import sources
+
+
+# See details on config file's and spec parameters in doc/dtest.md
+
+DEBUGGING = True
+LOGGING = True
+PARALLEL_WORKERS = 2
+
+OUT_DIR = os.path.join(os.path.dirname(__file__), '..', 'out')
+LOG_DIR = os.path.join(os.path.dirname(__file__), '..', 'log')
+
+RUN_REPORT_TEMPLATE = 'dtest_test_run_report.html.jinja'
+SPEC_REPORT_TEMPLATE = 'dtest_test_spec_report.html.jinja'
+
+SOURCE = "oracle_source"
+
+specs = {
+    "No rows": {
+        "tags": ['success'],
+        "doc": "Assert 1 != 1",
+        "source": "oracle_source",
+        "query": "select 42 as answer from dual where 1 != 1"
+    },
+    "--Commented out": {
+        "tags": ['success', 'commented'],
+        "doc": "Assert 1 != 1",
+        "source": "oracle_source",
+        "query": "select 42 as answer from dual where 1 != 1"
+    },
+    "Faulty 42": {
+        "tags": ['failure'],
+        #"doc": "Get unexpected 42",
+        "query": "select 42 as answer from dual"
+    },
+    "Fault row": {
+        "tags": ['failure'],
+        "doc": "Get unexpected row.",
+        "query": "select 1, 2, 3, 4, 5 from dual",
+        "header": ['col_1', 'col_2', 'col_3', 'col_4', 'col_5']
+    },
+    "Setup and Upset": {
+        "tags": ['setup', 'upset'],
+        "doc": "First setup DB stuff and then release it.",
+        "setup": [
+            """
+begin 
+    execute immediate 'drop table dtest_test';
+exception
+    when others then
+        if sqlcode = -942 then
+            null; -- ORA-00942 table or view does not exist
+        end if;
+end;
+            """,
+            """
+create table dtest_test as select 1 one from dual
+            """
+        ],
+        "query": "select 1 from dtest_test where one != 1",
+        "upset": [
+            """
+begin 
+    execute immediate 'drop table dtest_test';
+exception
+    when others then
+        if sqlcode = -942 then
+            null; -- ORA-00942 table or view does not exist
+        end if;
+end;
+            """
+        ]
+    },
+}

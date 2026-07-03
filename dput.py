@@ -10,11 +10,12 @@ import json
 import argparse
 import logging
 from datetime import date, datetime
+import threading
 
 from openpyxl import load_workbook
 
 
-VERSION = '0.3'
+VERSION = '0.4.0'
 
 parser = argparse.ArgumentParser(
     description="Load data from file into DB, as specified in cfg-file spec.",
@@ -81,6 +82,8 @@ if not os.path.isdir(IN_DIR):
     )
     sys.exit(1)
 
+PARALLEL_WORKERS = min(getattr(cfg, 'PARALLEL_WORKERS', 1), 8)
+
 DEBUGGING = getattr(cfg, 'DEBUGGING', False)
 LOGGING = getattr(cfg, 'LOGGING', DEBUGGING)
 LOG_DIR = getattr(cfg, 'LOG_DIR', CUR_DIR)
@@ -91,12 +94,19 @@ if LOGGING and not os.path.isdir(LOG_DIR):
     )
     sys.exit(1)
 LOG_FILE = os.path.join(LOG_DIR, f"{date.today().isoformat()}_{BASENAME.rsplit('.', 1)[0]}.log")
-logging.basicConfig(
-    filename=LOG_FILE,
-    #encoding='utf-8', # encoding needs Python >=3.9
-    format="%(asctime)s:%(levelname)s:%(process)s:%(message)s",
-    level=logging.DEBUG if DEBUGGING else logging.INFO if LOGGING else logging.CRITICAL + 1
-)
+if sys.version_info >= (3, 9):
+    logging.basicConfig(
+        filename=LOG_FILE,
+        encoding='utf-8',
+        format="%(asctime)s:%(levelname)s:%(process)s:" + ("%(thread)d:%(message)s" if PARALLEL_WORKERS > 1 else "%(message)s"),
+        level=logging.DEBUG if DEBUGGING else logging.INFO if LOGGING else logging.CRITICAL + 1
+    )
+else:
+    logging.basicConfig(
+        filename=LOG_FILE,
+        format="%(asctime)s:%(levelname)s:%(process)s:" + ("%(thread)d:%(message)s" if PARALLEL_WORKERS > 1 else "%(message)s"),
+        level=logging.DEBUG if DEBUGGING else logging.INFO if LOGGING else logging.CRITICAL + 1
+    )
 logger = logging.getLogger(BASENAME.rsplit('.', 1)[0])
 
 # output file encoding by default
@@ -106,7 +116,7 @@ ENCODING = getattr(cfg, 'ENCODING', locale.getpreferredencoding())
 #DATE_FORMAT = getattr(cfg, 'DATE_FORMAT', '%Y-%m-%d')
 
 CSV_DIALECT = getattr(cfg, 'CSV_DIALECT', 'excel')
-CSV_DELIMITER = getattr(cfg, 'CSV_DELIMITER', csv.get_dialect(CSV_DIALECT).delimiter)
+CSV_DELIMITER = getattr(cfg, 'CSV_DELIMITER', None) or csv.get_dialect(CSV_DIALECT).delimiter
 
 USER_ID = args.user
 STAT_FILE = os.path.join(TEMP_DIR, f".{CFG_MODULE}.json")
@@ -124,6 +134,63 @@ BATCH_SIZE = 1000
 # 2) import database driver in main() at the end of the script.
 
 IDA_SETUP = {
+    "mssql": [
+    """
+if object_id('ida', 'U') is null
+create table ida (
+    iload int not null identity,
+    idate timestamp not null, -- default current_timestamp,
+    istat smallint not null default 0,
+    imess varchar(4000),
+    ifile varchar(256),
+    iuser varchar(100),
+    entity varchar(100),
+    arg1 varchar(4000),
+    arg2 varchar(4000),
+    arg3 varchar(4000),
+    arg4 varchar(4000),
+    arg5 varchar(4000),
+    arg6 varchar(4000),
+    arg7 varchar(4000),
+    arg8 varchar(4000),
+    arg9 varchar(4000),
+    primary key (iload)
+)
+    """,
+    """
+if object_id('ida_lines', 'U') is null
+create table ida_lines (
+    iload int not null,
+    iline int not null,
+    ntable smallint not null default -1,
+    nline int not null default -1,
+    istat smallint not null default 0,
+    ierrm varchar(4000) null,
+    c1 varchar(4000), c2 varchar(4000), c3 varchar(4000), c4 varchar(4000), c5 varchar(4000),
+    c6 varchar(4000), c7 varchar(4000), c8 varchar(4000), c9 varchar(4000), c10 varchar(4000),
+    c11 varchar(4000), c12 varchar(4000), c13 varchar(4000), c14 varchar(4000), c15 varchar(4000),
+    c16 varchar(4000), c17 varchar(4000), c18 varchar(4000), c19 varchar(4000), c20 varchar(4000),
+    c21 varchar(4000), c22 varchar(4000), c23 varchar(4000), c24 varchar(4000), c25 varchar(4000),
+    c26 varchar(4000), c27 varchar(4000), c28 varchar(4000), c29 varchar(4000), c30 varchar(4000),
+    c31 varchar(4000), c32 varchar(4000), c33 varchar(4000), c34 varchar(4000), c35 varchar(4000),
+    c36 varchar(4000), c37 varchar(4000), c38 varchar(4000), c39 varchar(4000), c40 varchar(4000),
+    c41 varchar(4000), c42 varchar(4000), c43 varchar(4000), c44 varchar(4000), c45 varchar(4000),
+    c46 varchar(4000), c47 varchar(4000), c48 varchar(4000), c49 varchar(4000), c50 varchar(4000),
+    c51 varchar(4000), c52 varchar(4000), c53 varchar(4000), c54 varchar(4000), c55 varchar(4000),
+    c56 varchar(4000), c57 varchar(4000), c58 varchar(4000), c59 varchar(4000), c60 varchar(4000),
+    c61 varchar(4000), c62 varchar(4000), c63 varchar(4000), c64 varchar(4000), c65 varchar(4000),
+    c66 varchar(4000), c67 varchar(4000), c68 varchar(4000), c69 varchar(4000), c70 varchar(4000),
+    c71 varchar(4000), c72 varchar(4000), c73 varchar(4000), c74 varchar(4000), c75 varchar(4000),
+    c76 varchar(4000), c77 varchar(4000), c78 varchar(4000), c79 varchar(4000), c80 varchar(4000),
+    c81 varchar(4000), c82 varchar(4000), c83 varchar(4000), c84 varchar(4000), c85 varchar(4000),
+    c86 varchar(4000), c87 varchar(4000), c88 varchar(4000), c89 varchar(4000), c90 varchar(4000),
+    c91 varchar(4000), c92 varchar(4000), c93 varchar(4000), c94 varchar(4000), c95 varchar(4000),
+    c96 varchar(4000), c97 varchar(4000), c98 varchar(4000), c99 varchar(4000), c100 varchar(4000),
+    primary key (iload, iline, ntable, nline),
+    foreign key (iload) references ida(iload) on delete cascade
+)
+    """
+    ],
     "mysql": [
     """
 create table if not exists ida (
@@ -253,7 +320,7 @@ begin
 end;
     """
     ],
-    "postgres": [
+    "postgresql": [
     """
 create table if not exists ida (
     iload serial4 not null,
@@ -366,6 +433,21 @@ create table if not exists ida_lines (
 }
 
 
+def ida_insert_header_mssql(cur, user_id, filename, spec_name, load_args):
+    insert_stmt = \
+        """
+insert into ida (iuser, ifile, entity, {cols})
+output inserted.iload
+values (?,?,?,{vals})
+        """.format(
+            cols=','.join(f"arg{i+1}" for i in range(len(load_args))),
+            vals=','.join('?' for i in range(len(load_args)))
+        )
+    logger.debug("-- insert header\n%s\n", insert_stmt.rstrip())
+    cur.execute(insert_stmt, (user_id, filename, spec_name, *load_args))
+    return cur.fetchone()[0]
+
+
 def ida_insert_header_mysql(cur, user_id, filename, spec_name, load_args):
     insert_stmt = \
         """
@@ -403,7 +485,7 @@ insert into ida (
     return iload.getvalue()[0]
 
 
-def ida_insert_header_postgres(cur, user_id, filename, spec_name, load_args):
+def ida_insert_header_postgresql(cur, user_id, filename, spec_name, load_args):
     insert_stmt = \
         """
 insert into ida (
@@ -438,9 +520,10 @@ insert into ida (
     return cur.lastrowid
 
 IDA_INSERT_HEADER = {
+    "mssql": ida_insert_header_mssql,
     "mysql": ida_insert_header_mysql,
     "oracle": ida_insert_header_oracle,
-    "postgres": ida_insert_header_postgres,
+    "postgresql": ida_insert_header_postgresql,
     "sqlite": ida_insert_header_sqlite,
 }
 
@@ -452,6 +535,12 @@ insert into ida_lines (
 )
 """
 IDA_BUILD_INSERT_ROW = {
+    "mssql": \
+        lambda row:
+            IDA_INSERT_ROW.format(
+                cols=','.join(f"c{i+1}" for i in range(len(row) - 2)),
+                vals=','.join('?' for i in range(len(row)))
+            ),
     "mysql": \
         lambda row:
             IDA_INSERT_ROW.format(
@@ -464,7 +553,7 @@ IDA_BUILD_INSERT_ROW = {
                 cols=','.join(f"c{i+1}" for i in range(len(row) - 2)),
                 vals=','.join(f":{i+1}" for i in range(len(row)))
             ),
-    "postgres": \
+    "postgresql": \
         lambda row:
             IDA_INSERT_ROW.format(
                 cols=','.join(f"c{i+1}" for i in range(len(row) - 2)),
@@ -486,6 +575,12 @@ insert into ida_lines (
 )
 """
 IDA_BUILD_INSERT_ROWS = {
+    "mssql": \
+        lambda row:
+            IDA_INSERT_ROWS.format(
+                cols=','.join(f"c{i+1}" for i in range(len(row) - 4)),
+                vals=','.join('?' for i in range(len(row)))
+            ),
     "mysql": \
         lambda row:
             IDA_INSERT_ROWS.format(
@@ -498,7 +593,7 @@ IDA_BUILD_INSERT_ROWS = {
                 cols=','.join(f"c{i+1}" for i in range(len(row) - 4)),
                 vals=','.join(f":{i+1}" for i in range(len(row)))
             ),
-    "postgres": \
+    "postgresql": \
         lambda row:
             IDA_INSERT_ROWS.format(
                 cols=','.join(f"c{i+1}" for i in range(len(row) - 4)),
@@ -517,20 +612,24 @@ def ida_insert_many_rows_anydb(cur, stmt, rows):
     cur.executemany(stmt, rows)
 
 IDA_INSERT_MANY_ROWS = {
+    "mssql": ida_insert_many_rows_anydb,
     "mysql": ida_insert_many_rows_anydb,
     "oracle": ida_insert_many_rows_anydb,
-    "postgres": ida_insert_many_rows_anydb,
+    "postgresql": ida_insert_many_rows_anydb,
     "sqlite": ida_insert_many_rows_anydb,
 }
 
 IDA_SELECT_ISTAT_2_COUNT = {
+    "mssql": """
+select count(*) from ida_lines where iload = ? and istat = 2
+    """,
     "mysql": """
 select count(*) from ida_lines where iload = %s and istat = 2
     """,
     "oracle": """
 select count(*) from ida_lines where iload = :iload and istat = 2
     """,
-    "postgres": """
+    "postgresql": """
 select count(*) from ida_lines where iload = %s and istat = 2
     """,
     "sqlite": """
@@ -538,13 +637,16 @@ select count(*) from ida_lines where iload = ? and istat = 2
     """,
 }
 IDA_SELECT_ISTAT_IMESS = {
+    "mssql": """
+select istat, imess from ida where iload = ?
+    """,
     "mysql": """
 select istat, imess from ida where iload = %s
     """,
     "oracle": """
 select istat, imess from ida where iload = :iload
     """,
-    "postgres": """
+    "postgresql": """
 select istat, imess from ida where iload = %s
     """,
     "sqlite": """
@@ -552,13 +654,16 @@ select istat, imess from ida where iload = ?
     """,
 }
 IDA_UPDATE_ISTAT = {
+    "mssql": """
+update ida set istat = ? where iload = ?
+    """,
     "mysql": """
 update ida set istat = %s where iload = %s
     """,
     "oracle": """
 update ida set istat = :istat where iload = :iload
     """,
-    "postgres": """
+    "postgresql": """
 update ida set istat = %s where iload = %s
     """,
     "sqlite": """
@@ -566,6 +671,13 @@ update ida set istat = ? where iload = ?
     """,
 }
 IDA_DELETE_OLD_LOADS = {
+    "mssql": """
+delete o from ida o
+where o.entity = ?
+    and o.iload not in (
+        select iload from ida where entity = o.entity order by idate desc  offset 0 rows fetch next ? rows only
+    )
+    """,
     "mysql": """
 delete from ida
 where entity = %s
@@ -588,7 +700,7 @@ where entity = :1
       where rn > :2
     )
     """,
-    "postgres": """
+    "postgresql": """
 delete from ida o
 where entity = %s
     and iload not in (
@@ -671,7 +783,76 @@ def trace(ts, status):
     logger.debug("trace %s", this_trace + str(status))
 
 
-def process(spec_name, spec, input_file, stat):
+def naive_csv_reader(file, csv_delimiter):
+    for line in file:
+        yield line.split(csv_delimiter)
+
+
+def do_actions(spec, source, con, cur, iload):
+    """
+    Dо validate_ and process_actions.
+    """
+    err_count = 0
+
+    # validate loaded data
+    if spec.get('validate_actions'):
+
+        logger.debug('-- validate')
+        for stmt in spec['validate_actions']:
+            logger.debug('\n\n%s\n', stmt.strip())
+            cur.execute(stmt, (iload,))
+        con.commit()
+
+        if spec.get('insert_actions') is None:
+            cur.execute(IDA_SELECT_ISTAT_2_COUNT[source['database']], (iload,))
+            err_count = cur.fetchone()
+            err_count = err_count[0] if err_count else 0
+            if err_count > 0:
+                logger.info("Validation found %s bad lines.", err_count)
+            else:
+                logger.info("Validation succeded")
+        else:
+            cur.execute(IDA_SELECT_ISTAT_IMESS[source['database']], (iload,))
+            row = cur.fetchone()
+            err_count = 1 if row and row[0] == 2 else 0
+            if err_count > 0:
+                logger.info("Validation failed with error: %s", row[1])
+            else:
+                logger.info("Validation succeded")
+
+    # process loaded data
+    if err_count == 0 and spec.get('process_actions'):
+
+        logger.debug('-- process')
+        for stmt in spec['process_actions']:
+            logger.debug('\n\n%s\n', stmt.strip())
+            cur.execute(stmt, (iload,))
+        con.commit()
+
+        if spec.get('insert_actions') is None:
+            cur.execute(IDA_SELECT_ISTAT_2_COUNT[source['database']], (iload,))
+            err_count = cur.fetchone()
+            err_count = err_count[0] if err_count else 0
+            if err_count > 0:
+                logger.info("Processing found %s bad lines.", err_count)
+            else:
+                logger.info("Processing succeeded")
+        else:
+            cur.execute(IDA_SELECT_ISTAT_IMESS[source['database']], (iload,))
+            row = cur.fetchone()
+            err_count = 1 if row and row[0] == 2 else 0
+            if err_count > 0:
+                logger.info("Processing failed with error: %s", row[1])
+            else:
+                logger.info("Processing succeeded")
+
+    # mark as failed or succeeded
+    if spec.get('validate_actions') or spec.get('process_actions'):
+        cur.execute(IDA_UPDATE_ISTAT[source['database']], (2 if err_count > 0 else 1, iload,))
+        con.commit()
+
+
+def process_spec(con, spec_name, spec, input_file, stat):
     """
     Process spec from config-file.
     """
@@ -689,7 +870,10 @@ def process(spec_name, spec, input_file, stat):
     filename = os.path.basename(in_file)
     file_ext = filename.split('.')[-1]
 
-    con = None
+    #  0 rows of all input files go to a single load
+    # -1 rows of each input file go to a separate load
+    rows_per_load = spec.get('rows_per_load', 0)
+
     cur = None
     file = None
     wb = None
@@ -705,10 +889,10 @@ def process(spec_name, spec, input_file, stat):
             spec['process_actions'] = [spec['process_actions']]
 
         # validate the spec
-        assert file_ext in ('csv', 'xlsx', 'json', 'zip') or spec.get('pass_lines', False), \
+        assert file_ext in ('csv', 'xlsx', 'json', 'zip') or spec.get('text_lines', False), \
             f"Bad file extension \"{file_ext}\" in spec \"{spec_name}\""
-        assert sources.get(spec['source']), \
-            f"Source \"{spec['source']}\" not defined, spec \"{spec_name}\""
+        #assert sources.get(spec['source']), \
+        #    f"Source \"{spec['source']}\" not defined, spec \"{spec_name}\""
         assert file_ext != 'json' or spec.get('insert_data'), \
             f"Missing \"insert_data\" in spec \"{spec_name}\""
         assert all(isinstance(i, str) for i in spec.get('insert_actions', [])), \
@@ -732,19 +916,25 @@ def process(spec_name, spec, input_file, stat):
         assert all(a is not None for a in load_args), \
             f"Expected specific load args, got None in spec \"{spec_name}\""
 
-        # find files to load
+        logger.info(f"spec \"{spec_name}\"; source = \"{spec['source']}\"")
+
+        # Find files to load.
         all_files = []
         recent_files = []
         latest_mtime = stat[spec_name]['mtime']
         for file_name in sorted(glob.glob(in_file)):
+            statinfo = os.stat(file_name)
+            if statinfo.st_size == 0:
+                logger.debug("%s - Skipping zero length file: %s", spec_name, file_name)
+                continue
             all_files.append(file_name)
-            file_mtime = os.stat(file_name).st_mtime
+            file_mtime = statinfo.st_mtime
             if file_mtime > stat[spec_name]['mtime']:
                 recent_files.append(file_name)
             latest_mtime = max(file_mtime, latest_mtime)
 
         if (not args.force and not spec.get('force') and not recent_files) or not all_files:
-            logger.info("%s - No files to load: %s", spec_name, input_file)
+            logger.info("%s - No files to load: %s", spec_name, in_file)
             return return_code
 
         if args.force or spec.get('force'):
@@ -752,10 +942,9 @@ def process(spec_name, spec, input_file, stat):
         else:
             target_files = recent_files
 
-        # 1) load data from file(s) into database
-        logger.debug("Loading %s, %s", spec_name, in_file)
+        # Load data from file(s) into database.
 
-        con = connection(spec['source'])
+        logger.debug("Loading %s", in_file)
 
         # Initialize/Setup stuff related to this spec.
         if spec.get('setup'):
@@ -784,7 +973,7 @@ def process(spec_name, spec, input_file, stat):
                     ifile_path, ifile_name = os.path.split(ifile)
                     assert ifile_name.rsplit('.', 1)[0] in (inner_file, inner_name), \
                         f"Zip file member name is inconsistent with file name {ifile}"
-                    assert inner_ext in ('csv', 'json', 'xlsx') or spec.get('pass_lines', False), \
+                    assert inner_ext in ('csv', 'json', 'xlsx') or spec.get('text_lines', False), \
                         f"Zip file member has bad extension \"{inner_ext}\" in file {ifile}"
                     assert inner_ext != 'json' or spec.get('insert_data'), \
                         f"Missing \"insert_data\" in spec \"{spec_name}\""
@@ -799,18 +988,25 @@ def process(spec_name, spec, input_file, stat):
                 in_format = file_ext
 
             # open file for reading
-            if spec.get('pass_lines', False):
+            if spec.get('text_lines', False):
                 file = open(ifile, 'r', encoding=spec.get('encoding', ENCODING))
                 reader = file
             elif in_format == 'csv':
                 file = open(ifile, 'r', encoding=spec.get('encoding', ENCODING))
-                reader = \
-                    csv.reader(
-                        file,
-                        dialect=spec.get('csv_dialect', CSV_DIALECT),
-                        delimiter=spec.get('csv_delimiter', CSV_DELIMITER)
-                        #quotechar=spec.get('csv_quotechar', CSV_QUOTECHAR)
-                    )
+                if spec.get('csv_dialect', CSV_DIALECT) == 'naive':
+                    reader = \
+                        naive_csv_reader(
+                            file,
+                            delimiter=spec.get('csv_delimiter', CSV_DELIMITER)
+                        )
+                else:
+                    reader = \
+                        csv.reader(
+                            file,
+                            dialect=spec.get('csv_dialect', CSV_DIALECT),
+                            delimiter=spec.get('csv_delimiter', CSV_DELIMITER)
+                            #quotechar=spec.get('csv_quotechar', CSV_QUOTECHAR)
+                        )
             elif in_format == 'xlsx':
                 wb = load_workbook(filename=ifile, read_only=True)
                 #reader = wb.worksheets[0]
@@ -821,12 +1017,20 @@ def process(spec_name, spec, input_file, stat):
                 assert isinstance(reader, list), f"Bad json file {ifile}"
 
             # load data from file
+            if rows_per_load == -1:
+                # rows of each input file go to a separate load
+                count = 0
+                idata = []
+                icount = []
+                iload = None
+                istmt = []
             line_no = 0
             for row in reader:
 
                 # create header in table ida
                 if not iload:
-                    iload = IDA_INSERT_HEADER[source['database']](cur, USER_ID, filename, spec_name, load_args or [None])
+                    file_ = filename if rows_per_load != -1 else os.path.basename(ifile)
+                    iload = IDA_INSERT_HEADER[source['database']](cur, USER_ID, file_, spec_name, load_args or [None])
                     con.commit()
 
                 count += 1
@@ -846,7 +1050,7 @@ def process(spec_name, spec, input_file, stat):
                         func(row) if func and func.__code__.co_argcount == 1 else \
                         func(line_no, row) if func and func.__code__.co_argcount == 2 else \
                         func(iload, count, row) if func and func.__code__.co_argcount == 3 else \
-                        [row] if spec.get('pass_lines', False) else \
+                        [row] if spec.get('text_lines', False) else \
                         row
                     if not insert_data:
                         # insert no row
@@ -877,7 +1081,7 @@ def process(spec_name, spec, input_file, stat):
                         icount[n] += len(idata[n])
                         idata[n].clear()
 
-            if in_format in ('csv', 'json') or spec.get('pass_lines', False):
+            if in_format in ('csv', 'json') or spec.get('text_lines', False):
                 file.close()
             elif in_format == 'xlsx':
                 wb.close()
@@ -888,81 +1092,23 @@ def process(spec_name, spec, input_file, stat):
                     IDA_INSERT_MANY_ROWS[source['database']](cur, istmt[n], idata[n])
                     icount[n] += len(idata[n])
                     idata[n].clear()
+
+            logger.info("%s", ifile)
+            if rows_per_load == -1:
+                logger.info("Loaded %s of %s rows with iload=%s", str(icount).strip('[]'), count - spec.get('skip_lines', 0), iload)
+                # Do the spec's validate_ and process_actions.
+                do_actions(spec, source, con, cur, iload)
             con.commit()
 
             if args.delete or spec.get('delete') or file_ext == 'zip':
                 os.remove(ifile)
-            logger.info("%s", ifile)
 
-        # insert the rest of prepared data
-        #for n in range(len(idata)):
-        #    if idata[n]:
-        #        IDA_INSERT_MANY_ROWS[source['database']](cur, istmt[n], idata[n])
-        #        icount[n] += len(idata[n])
-        logger.info("Loaded %s of %s rows with iload=%s", str(icount).strip('[]'), count - spec.get('skip_lines', 0), iload)
+        if rows_per_load == 0:
+            logger.info("Loaded %s of %s rows with iload=%s", str(icount).strip('[]'), count - spec.get('skip_lines', 0), iload)
+            # Do the spec's validate_ and process_actions.
+            do_actions(spec, source, con, cur, iload)
 
-        # 2) validate loaded data
-
-        err_count = 0
-        if spec.get('validate_actions'):
-
-            logger.debug('-- validate')
-            for stmt in spec['validate_actions']:
-                logger.debug('\n\n%s\n', stmt.strip())
-                cur.execute(stmt, (iload,))
-            con.commit()
-
-            if spec.get('insert_actions') is None:
-                cur.execute(IDA_SELECT_ISTAT_2_COUNT[source['database']], (iload,))
-                err_count = cur.fetchone()
-                err_count = err_count[0] if err_count else 0
-                if err_count > 0:
-                    logger.info("Validation found %s bad lines.", err_count)
-                else:
-                    logger.info("Validation succeded")
-            else:
-                cur.execute(IDA_SELECT_ISTAT_IMESS[source['database']], (iload,))
-                row = cur.fetchone()
-                err_count = 1 if row and row[0] == 2 else 0
-                if err_count > 0:
-                    logger.info("Validation failed with error: %s", row[1])
-                else:
-                    logger.info("Validation succeded")
-
-        # 3) process loaded data
-
-        if err_count == 0 and spec.get('process_actions'):
-
-            logger.debug('-- process')
-            for stmt in spec['process_actions']:
-                logger.debug('\n\n%s\n', stmt.strip())
-                cur.execute(stmt, (iload,))
-            con.commit()
-
-            if spec.get('insert_actions') is None:
-                cur.execute(IDA_SELECT_ISTAT_2_COUNT[source['database']], (iload,))
-                err_count = cur.fetchone()
-                err_count = err_count[0] if err_count else 0
-                if err_count > 0:
-                    logger.info("Processing found %s bad lines.", err_count)
-                else:
-                    logger.info("Processing succeeded")
-            else:
-                cur.execute(IDA_SELECT_ISTAT_IMESS[source['database']], (iload,))
-                row = cur.fetchone()
-                err_count = 1 if row and row[0] == 2 else 0
-                if err_count > 0:
-                    logger.info("Processing failed with error: %s", row[1])
-                else:
-                    logger.info("Processing succeeded")
-
-        # mark as failed or succeeded
-        cur.execute(IDA_UPDATE_ISTAT[source['database']], (2 if err_count > 0 else 1, iload,))
-        con.commit()
-
-        # delete old loads from ida preserving only last N loads
-        #logger.debug('-- keep ida fit')
-        #logger.debug('\n\n%s\n', IDA_DELETE_OLD_LOADS[source['database']].strip())
+        # Delete old loads from ida preserving only last N loads.
         cur.execute(
             IDA_DELETE_OLD_LOADS[source['database']],
             (spec_name, spec.get('preserve_n_loads', PRESERVE_N_LOADS))
@@ -980,8 +1126,7 @@ def process(spec_name, spec, input_file, stat):
             stat[spec_name]['mtime'] = latest_mtime
     except:
         logger.exception('EXCEPT')
-        if sources[spec['source']].get('con'):
-            sources[spec['source']]['con'].rollback()
+        con.rollback()
         return_code = 1
     finally:
         if file:
@@ -991,12 +1136,64 @@ def process(spec_name, spec, input_file, stat):
     return return_code
 
 
+class ReturnValueThread(threading.Thread):
+    """
+    Class where join() returns value returned by target function
+    """
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.result = 0
+
+    def run(self):
+        if self._target is not None:
+            self.result = self._target(*self._args, **self._kwargs)
+
+    def join(self, *args, **kwargs):
+        super().join(*args, **kwargs)
+        return self.result
+
+
+def worker(list_of_arg_tuples):
+    error_count = 0
+    connections = dict()
+
+    for arg_tuple in list_of_arg_tuples:
+        spec_name, spec, in_file, stat = arg_tuple
+
+        # get worker connection for the spec
+        source_name = spec['source']
+        if not connections.get(source_name):
+            source = sources[source_name]
+            connections[source_name] = \
+                source['lib'].connect(source['con_string'], **source.get('con_kwargs', dict())) \
+                if source.get('con_string') else \
+                source['lib'].connect(**source['con_kwargs'])
+            if source.get('setup'):
+                logger.debug('-- setup')
+                exec_sql(connections[source_name], source['setup'])
+        con = connections[source_name]
+
+        # execute the spec
+        error_count += process_spec(con, spec_name, spec, in_file, stat)
+
+    # shutdown all worker connections
+    for source_name, con in connections.items():
+        source = sources[source_name]
+        if source.get('upset'):
+            logger.debug('-- upset')
+            exec_sql(con, source['upset'])
+        con.close()
+
+    return error_count
+
+
 def main():
     logger.info("-- start %s", ' '.join(sys.argv))
 
-    error_count = 0
-    _ts = datetime.now().strftime('%Y%m%d%H%M%S')
+    _temp = datetime.now()
+    _ts = _temp.strftime('%Y%m%d%H%M%S')
     trace(_ts, 0)
+    logger.info(f"run with {PARALLEL_WORKERS} thread(s)")
 
     if os.path.isfile(STAT_FILE):
         with open(STAT_FILE, encoding='UTF-8') as f:
@@ -1004,52 +1201,61 @@ def main():
     else:
         stat = dict()
 
+    error_count = 0
+    todo = []
     for spec_name, spec in specs.items():
         if spec_name not in stat:
             stat[spec_name] = {'mtime': 0}
         if SPEC in (spec_name, 'all', *spec.get('tags', [])):
             spec['source'] = spec.get('source', getattr(cfg, 'SOURCE', None))
-            if spec['source'] is None:
-                logger.error('Skipping spec "%s" with no source', spec_name)
+            if spec['source'] not in sources:
+                logger.error('Skipping spec "%s" with unknown source', spec_name)
                 error_count += 1
                 continue
             src = sources[spec['source']]
             if src.get('lib') is None:
-                if src['database'] == 'oracle':
+                if src['database'] == 'mssql':
+                    import mssql_python
+                    src['lib'] = mssql_python
+                elif src['database'] == 'mysql':
+                    import mysql.connector
+                    src['lib'] = mysql.connector
+                elif src['database'] == 'oracle':
                     # import cx_Oracle
                     # src['lib'] = cx_Oracle
                     import oracledb
                     src['lib'] = oracledb
                     if src.get('oracledb_thick_mode'):
                         src['lib'].init_oracle_client()
-                elif src['database'] == 'postgres':
+                elif src['database'] == 'postgresql':
                     import psycopg
                     src['lib'] = psycopg
-                elif src['database'] == 'mysql':
-                    import mysql.connector
-                    src['lib'] = mysql.connector
                 elif src['database'] == 'sqlite':
                     import sqlite3
                     src['lib'] = sqlite3
                 else:
                     src['lib'] = None
                 src['setup'] = IDA_SETUP.get(src['database'], []) + src.get('setup', [])
-            error_count += process(spec_name, spec, args.in_file, stat)
+            todo.append((spec_name, spec, args.in_file, stat))
+            #error_count += process_spec(spec_name, spec, args.in_file, stat)
 
-    for src in sources.values():
-        if src.get('con') is not None:
-            if src.get('upset'):
-                logger.debug("-- upset")
-                exec_sql(src['con'], src.get('upset'))
-            src['con'].close()
-            src['con'] = None
+    # create and start worker threads
+    threads = []
+    for i in range(PARALLEL_WORKERS):
+        threads.append(ReturnValueThread(target=worker, args=(todo[i::PARALLEL_WORKERS],)))
+        threads[-1].start()
+    # wait for all worker threads to terminate
+    for thread in threads:
+        error_count += thread.join()
 
     stat = {k: v for k, v in stat.items() if k in specs}
     with open(STAT_FILE, 'w', encoding='UTF-8') as f:
         f.write(json.dumps(stat))
 
     trace(_ts, 1 if error_count == 0 else 2)
-    logger.info("-- done %s", f" WITH {error_count} ERRORS" if error_count else '')
+    logger.debug(f"{datetime.now() - _temp}")
+    logger.info("-- done%s", f" WITH {error_count} ERRORS" if error_count else '')
+
     sys.exit(error_count)
 
 

@@ -1,6 +1,6 @@
 # dtest. Testing and Reporting Data Quality
 
-	version 0.3
+	version 0.4.0
 
 The `dtest` utility executes queries from config file specs against a relational database, and generates a report on data quality in HTML format.
 
@@ -76,7 +76,7 @@ specs = {
 
 Global variable `OUT_DIR` sets the directory for report files.
 
-Test config file `dtest-test.py` contains comments on all the spec parameters. Read it carefully and familiarize yourself with all the parameters.
+See test config files `test/dtest_test_<database>.py` to familiarize yourself with `dtest` parameters and specs.
 
 ## Command Line Arguments
 
@@ -103,24 +103,25 @@ If `spec` is provided, then the utility executes only the named spec or specs wi
 
 ## Config File Parameters
 
-Config file parameters are variables with names in uppercase that define context for executing specs from that config file. See also [Config Files Structure](conf.md).
+Config file parameters are variables with names in uppercase that define context for executing specs from that config file. See also [Config Files Structure](config.md).
 
 The `dtest` config file parameters are described below.
 
-| Parameter         | Default Value           | Description                                      |
-| ----------------- | ----------------------- | ------------------------------------------------ |
-| `DEBUGGING`       | `False`                 | Debugging mode?                                  |
-| `LOGGING`         | = DEBUGGING             | Write to log file?                               |
-| `LOG_DIR`         | `./`                    | Path to the directory with log files.            |
-| `OUT_DIR`         | `./`                    | Path to the directory with data quality reports. |
-| `DATETIME_FORMAT` | `"%Y-%m-%d %H:%M:%S%z"` | Datetime format; defaults to ISO 86101.          |
-| `DATE_FORMAT`     | `"%Y-%m-%d"`            | Date format; defaults to ISO 86101.              |
-| `SOURCE`*         |                         | Name of a data source defined in `sources.py`.   |
+| Parameter              | Default Value | Description                                                                                                      |
+| ---------------------- | ------------- | ---------------------------------------------------------------------------------------------------------------- |
+| `DEBUGGING`            | `False`       | Debugging mode?                                                                                                  |
+| `LOGGING`              | = DEBUGGING   | Write to log file?                                                                                               |
+| `PARALLEL_WORKERS`     | 1             | Number of threads to run specs in parallel.                                                                      |
+| `LOG_DIR`              | `./`          | Path to the directory with log files.                                                                            |
+| `OUT_DIR`              | `./`          | Path to the directory with data quality reports.                                                                 |
+| `SOURCE`*              |               | Name of a data source defined in `sources.py`.                                                                   |
+| `RUN_REPORT_TEMPLATE`  |               | Filename of custom Jinja2 template for run report. See sample template file `cfg/dtest_sample_run.html.jinja`.   |
+| `SPEC_REPORT_TEMPLATE` |               | Filename of custom Jinja2 template for spec report. See sample template file `cfg/dtest_sample_spec.html.jinja`. |
 \* config file parameter marked with asterisk may be overridden at spec level with a corresponding spec parameter.
 
 ## Spec Parameters
 
-Specs are found in a config file in the `specs` dictionary and contain **spec parameters**. See also [Config Files Structure](conf.md).
+Specs are found in a config file in the `specs` dictionary and contain **spec parameters**. See also [Config Files Structure](config.md).
 
 Spec parameters for `dtest` utility are described below. If not explicitly described as mandatory, a spec parameter is optional and may be omitted.
 

@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="content-type" content="text/html; charset=UTF-8">
+    <style type="text/css">
+        table {border-collapse: collapse; border: 1px solid navy;}
+        th {padding: 5px; text-align: left; border: 1px solid navy; background:lightblue;}
+        td {padding: 5px; text-align: left; border: 1px solid navy;}
+    </style>
+<title>Data Quality Report ({{cfg}}): {{test}}</title>
+</head>
+<body>
+<h2><a href="{{cfg}}.html">Data Quality Report ({{cfg}})</a>: {{test}}</h2>
+{%- if rows %}
+{%- for row in rows %}
+{%- if loop.first %}
+{%- if doc %}
+<p>{{doc}}</p>
+{%- endif %}
+<p>
+{{run[1]}}. DB = "{{source}}". <span style="color:red;">Got {{rows|length}} fault rows. </span>
+{% for warn in warnings %}{{warn}} {% endfor %}
+</p>
+<table>
+<tr>{% for title in titles %}<th>{{title}}</th>{% endfor %}</tr>
+{%- endif %}
+<tr>{% for col in row %}<td>{{col if col is not none else '<NULL>'}}</td>{% endfor %}</tr>
+{%- if loop.last %}
+</table>
+{%- endif %}
+{%- endfor %}
+{%- else %}
+<p style="color:green;">Found 0 rows.</p>
+{%- endif %}
+</body>
+</html>

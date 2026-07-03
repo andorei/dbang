@@ -1,6 +1,6 @@
 # hedwig. Sending Files (and More) by Email
 
-	version 0.3
+	version 0.4.0
 
 The `hedwig` utility creates email messages and sends them to addressees according to specs in config files. They may be either text messages (`text/plain`) or HTML ones (`text/html`), and they may have attached files.
 
@@ -20,26 +20,26 @@ Here is an example of minimalistic specs for sending messages `Hello world!` as 
 specs = {
     ...
     "helloworld.txt": {
+        "force": True,
         "mail": {
             "to": "me@my.self",
             "subject": "{dbang} hello world",
-            "body": "Hello world!",
-            "always": True
+            "body": "Hello world!\n"
         }
     },
     "helloworld.html": {
+        "force": True,
         "mail": {
             "to": "me@my.self",
             "subject": "{dbang} hello world",
-            "body": "&lt;html>&lt;body&gt;&lt;p&gt;Hello world!&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;",
-            "always": True
+            "body": "<p>Hello world!</p>"
         }
     },
     ...
 }
 ```
 
-If you add these specs in test config file `hedwig-test.py` and run them you'll get the emails with the following content:
+If you add these specs in test config file `hedwig_test.py` and run them you'll get the emails with the following content:
 
 ```
 Hello!
@@ -129,7 +129,7 @@ specs = {
 }
 ```
 
-These are the specs from the test config file `hedwig-test.py`. Run them and see the result in the inbox of your email client.
+These are the specs from the test config file `hedwig_test.py`. Run them and see the result in the inbox of your email client.
 
 Spec parameter `"body"` allows defining the message body
 
@@ -185,7 +185,7 @@ The definition of a file which goes to a message body may contain the following 
 * `"clip"` – (optional) Python regular expression to find pieces of interest in a file content (after applying `"tail"`), the rest of a file content is ignored,
 * `"substitutions"` – (optional) list of pairs `(<pattern>, <replacement>)` to make substitutions in a file content (after applying `"clip"`).
 
-Test config file `hedwig-test.py` contains comments on all the spec parameters. Read it carefully and familiarize yourself with all the parameters.
+See test config file `hedwig_test.py` to familiarize yourself with the parameters and example specs.
 
 ## Attached Files
 
@@ -267,7 +267,7 @@ LOG_DIR = os.path.join(os.path.dirname(__file__), '..', 'log')
 ...
 
 specs = {
-	...
+    ...
     "logged errors.html": {
         "mail": {
             "to": "me@my.self",
@@ -319,7 +319,7 @@ Option `-f` or `--force` instructs the `hedwig` utility to build and send an ema
 
 ## Config File Parameters
 
-Config file parameters are variables with names in uppercase that define context for executing specs from that config file. See also [Config Files Structure](conf.md).
+Config file parameters are variables with names in uppercase that define context for executing specs from that config file. See also [Config Files Structure](config.md).
 
 The `hedwig` config file parameters are described below.
 
@@ -328,35 +328,37 @@ The `hedwig` config file parameters are described below.
 | `DEBUGGING`       | `False`                                                | Debugging mode?                              |
 | `LOGGING`         | = DEBUGGING                                            | Write to log file?                           |
 | `LOG_DIR`         | `./`                                                   | Path to the directory with log files.        |
-| `DATETIME_FORMAT` | `"%Y-%m-%d %H:%M:%S%z"`                                | Datetime format; defaults to ISO 86101.      |
-| `DATE_FORMAT`     | `"%Y-%m-%d"`                                           | Date format; defaults to ISO 86101.          |
 | `ENCODING`*       | `locale.getpreferredencoding()`                        | Input file(s) encoding.                      |
 | `HTML_GREETING`*  | `<p>Hello!</p><p/>`                                    | Greeting for email messages in HTML format.  |
 | `HTML_SIGNATURE`* | `<p/><p>Have a good day!<br/>dbang Utilities<br/></p>` | Signature for email messages in HTML format. |
 | `TEXT_GREETING`*  | `"\nHello!\n\n"`                                       | Greeting for plain text email messages.      |
 | `TEXT_SIGNATURE`* | `"\n\nHave a good day!\ndbang Utilities\n`             | Signature for plain text email messages.     |
-| `MAIL_SERVER`     |                                                        | SMTP server address.                         |
-| `MAIL_FROM`       |                                                        | Email address of a sender.                   |
+| *`MAIL_SERVER`*   |                                                        | *MANDATORY* SMTP server address.             |
+| *`MAIL_FROM`*     |                                                        | *MANDATORY* email address of a sender.       |
+| `MAIL_PORT`       | OS default, see Python module `smtplib.SMTP`           | Number of SMTP server port.                  |
+| `MAIL_USE_TLS`    | `False`                                                | Use TLS?                                     |
+| `MAIL_USER`       |                                                        | Username to authenticate on SMTP server.     |
+| `MAIL_PASSWORD`   |                                                        | User password to authenticate on SMTP server.|
 \* config file parameter marked with asterisk may be overridden at spec level with a corresponding spec parameter.
 
 ## Spec Parameters
 
-Specs are found in a config file in the `specs` dictionary and contain **spec parameters**. See also [Config Files Structure](conf.md).
+Specs are found in a config file in the `specs` dictionary and contain **spec parameters**. See also [Config Files Structure](config.md).
 
 Spec parameters for `hedwig` utility are described below. If not explicitly described as mandatory, a spec parameter is optional and may be omitted.
 
-| Spec Parameter        | Description                                                                                                                                                           |
-| --------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `"tags"`              | List of tags attached to the spec.                                                                                                                                    |
-| `"doc"`               | Short description/comment on a spec.                                                                                                                                  |
-| `"force"`             | Build and send an email message unconditionally.                                                                                                                      |
-| `"template"`          | Jinja2 шаблон для формирования тела письма. По умолчанию используются шаблоны `hedwig.text.jinja` для текстовых писем и `hedwig.html.jinja` для писем формата `html`. |
-| **`"mail"`**          | Python dictionary with a message properties.                                                                                                                          |
-| **`mail["to"]`**      | **MANDATORY** email address "To", a string (`str`) or a list of strings.                                                                                              |
-| `mail["cc"]`          | Email address "Copy To", a string (`str`) or a list of strings.                                                                                                       |
-| `mail["bcc"]`         | Email address "BCC", a string (`str`) or a list of strings.                                                                                                           |
-| **`mail["subject"]`** | **MANDATORY** message subject (`str`).                                                                                                                                |
-| `mail["greeting"]`    | A greeting (`str`).                                                                                                                                                   |
-| **`mail["body"]`**    | **MANDATORY** message body, see [Message Body](#message-body).                                                                                                        |
-| `mail["signature"]`   | A signature (`str`).                                                                                                                                                  |
-| `mail["attachments"]` | List of attached files, see [Attached Files](#attached-files).                                                                                                        |
+| Spec Parameter        | Description                                                                                                                      |
+| --------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| `"tags"`              | List of tags attached to the spec.                                                                                               |
+| `"doc"`               | Short description/comment on a spec.                                                                                             |
+| `"force"`             | Build and send an email message unconditionally.                                                                                 |
+| `"template"`          | Filename of custom Jinja2-template for message body. See sample files `cfg/hedwig_sample.html.jinja` and `cfg/hedwig_sample.text.jinja`. |
+| **`"mail"`**          | Python dictionary with a message properties.                                                                                     |
+| **`mail["to"]`**      | **MANDATORY** email address "To", a string (`str`) or a list of strings.                                                         |
+| `mail["cc"]`          | Email address "Copy To", a string (`str`) or a list of strings.                                                                  |
+| `mail["bcc"]`         | Email address "BCC", a string (`str`) or a list of strings.                                                                      |
+| **`mail["subject"]`** | **MANDATORY** message subject (`str`).                                                                                           |
+| `mail["greeting"]`    | A greeting (`str`).                                                                                                              |
+| **`mail["body"]`**    | **MANDATORY** message body, see [Message Body](#message-body).                                                                   |
+| `mail["signature"]`   | A signature (`str`).                                                                                                             |
+| `mail["attachments"]` | List of attached files, see [Attached Files](#attached-files).                                                                   |

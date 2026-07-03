@@ -5,14 +5,21 @@ import sys
 import argparse
 import logging
 import decimal as dec
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from math import ceil
 import re
+import sqlite3
+import threading
 
-from jinja2 import Template
+from jinja2 import (
+    Template,
+    Environment,
+    FileSystemLoader,
+    select_autoescape
+)
 
 
-VERSION = '0.3'
+VERSION = '0.4.0'
 
 parser = argparse.ArgumentParser(
     description="Detect discrepancies in two databases as specified in cfg-file specs.",
@@ -34,8 +41,8 @@ if not os.path.isfile(args.cfg_file) and not os.path.isfile(args.cfg_file + '.py
         f"{BASENAME}: error: cfg-file not found: {args.cfg_file}\n"
     )
     sys.exit(1)
+BASEBASE = BASENAME.rsplit('.', 1)[0]
 
-#USER_DIR = os.environ.get('HOMEPATH', os.environ.get('HOME', ''))
 USER_DIR = os.path.expanduser('~')
 if not os.path.isdir(USER_DIR):
     sys.stderr.write(
@@ -74,6 +81,8 @@ if not os.path.isdir(OUT_DIR):
     sys.exit(1)
 OUT_FILE = os.path.join(OUT_DIR, '{}.html')
 
+PARALLEL_WORKERS = min(getattr(cfg, 'PARALLEL_WORKERS', 1), 8)
+
 DEBUGGING = getattr(cfg, 'DEBUGGING', False)
 LOGGING = getattr(cfg, 'LOGGING', DEBUGGING)
 LOG_DIR = getattr(cfg, 'LOG_DIR', CUR_DIR)
@@ -83,20 +92,27 @@ if LOGGING and not os.path.isdir(LOG_DIR):
         f"{BASENAME}: error: log dir not found: {LOG_DIR}\n"
     )
     sys.exit(1)
-LOG_FILE = os.path.join(LOG_DIR, f"{date.today().isoformat()}_{BASENAME.rsplit('.', 1)[0]}.log")
-logging.basicConfig(
-    filename=LOG_FILE,
-    #encoding='utf-8', # encoding needs Python >=3.9
-    format="%(asctime)s:%(levelname)s:%(process)s:%(message)s",
-    level=logging.DEBUG if DEBUGGING else logging.INFO if LOGGING else logging.CRITICAL + 1
-)
-logger = logging.getLogger(BASENAME.rsplit('.', 1)[0])
+LOG_FILE = os.path.join(LOG_DIR, f"{date.today().isoformat()}_{BASEBASE}.log")
+if sys.version_info >= (3, 9):
+    logging.basicConfig(
+        filename=LOG_FILE,
+        encoding='utf-8',
+        format="%(asctime)s:%(levelname)s:%(process)s:" + ("%(thread)d:%(message)s" if PARALLEL_WORKERS > 1 else "%(message)s"),
+        level=logging.DEBUG if DEBUGGING else logging.INFO if LOGGING else logging.CRITICAL + 1
+    )
+else:
+    logging.basicConfig(
+        filename=LOG_FILE,
+        format="%(asctime)s:%(levelname)s:%(process)s:" + ("%(thread)d:%(message)s" if PARALLEL_WORKERS > 1 else "%(message)s"),
+        level=logging.DEBUG if DEBUGGING else logging.INFO if LOGGING else logging.CRITICAL + 1
+    )
+logger = logging.getLogger(BASEBASE)
 
 # datetime format for strftime is ISO 86101 by default
 DATETIME_FORMAT = getattr(cfg, 'DATETIME_FORMAT', '%Y-%m-%d %H:%M:%S%z')
 DATE_FORMAT = getattr(cfg, 'DATE_FORMAT', '%Y-%m-%d')
 
-# keep data in ddiff_ table after test completion
+# keep data in ddiff tables after test completion
 DDIFF_KEEP = False
 # number of rows to fetch with one fetch
 ONE_FETCH_ROWS = 5000
@@ -106,6 +122,55 @@ MAX_FETCH_ROWS = 1000000
 MAX_DISCREPANCIES = 1000
 
 DDIFF_SETUP = {
+    "mssql": [
+        """
+if object_id('ddiff_', 'U') is null
+create table ddiff_(
+    cfg varchar(4000),
+    spec varchar(4000),
+    run bigint,
+    source varchar(4000),
+    c1 varchar(4000), c2 varchar(4000), c3 varchar(4000), c4 varchar(4000), c5 varchar(4000),
+    c6 varchar(4000), c7 varchar(4000), c8 varchar(4000), c9 varchar(4000), c10 varchar(4000),
+    c11 varchar(4000), c12 varchar(4000), c13 varchar(4000), c14 varchar(4000), c15 varchar(4000),
+    c16 varchar(4000), c17 varchar(4000), c18 varchar(4000), c19 varchar(4000), c20 varchar(4000),
+    c21 varchar(4000), c22 varchar(4000), c23 varchar(4000), c24 varchar(4000), c25 varchar(4000),
+    c26 varchar(4000), c27 varchar(4000), c28 varchar(4000), c29 varchar(4000), c30 varchar(4000),
+    c31 varchar(4000), c32 varchar(4000), c33 varchar(4000), c34 varchar(4000), c35 varchar(4000),
+    c36 varchar(4000), c37 varchar(4000), c38 varchar(4000), c39 varchar(4000), c40 varchar(4000),
+    c41 varchar(4000), c42 varchar(4000), c43 varchar(4000), c44 varchar(4000), c45 varchar(4000),
+    c46 varchar(4000), c47 varchar(4000), c48 varchar(4000), c49 varchar(4000), c50 varchar(4000)
+)
+        """,
+        """
+if object_id('ddiff_diffs_', 'U') is null
+create table ddiff_diffs_(
+    cfg varchar(4000),
+    spec varchar(4000),
+    run bigint,
+    c1 varchar(4000), c2 varchar(4000), c3 varchar(4000), c4 varchar(4000), c5 varchar(4000),
+    c6 varchar(4000), c7 varchar(4000), c8 varchar(4000), c9 varchar(4000), c10 varchar(4000),
+    c11 varchar(4000), c12 varchar(4000), c13 varchar(4000), c14 varchar(4000), c15 varchar(4000),
+    c16 varchar(4000), c17 varchar(4000), c18 varchar(4000), c19 varchar(4000), c20 varchar(4000),
+    c21 varchar(4000), c22 varchar(4000), c23 varchar(4000), c24 varchar(4000), c25 varchar(4000),
+    c26 varchar(4000), c27 varchar(4000), c28 varchar(4000), c29 varchar(4000), c30 varchar(4000),
+    c31 varchar(4000), c32 varchar(4000), c33 varchar(4000), c34 varchar(4000), c35 varchar(4000),
+    c36 varchar(4000), c37 varchar(4000), c38 varchar(4000), c39 varchar(4000), c40 varchar(4000),
+    c41 varchar(4000), c42 varchar(4000), c43 varchar(4000), c44 varchar(4000), c45 varchar(4000),
+    c46 varchar(4000), c47 varchar(4000), c48 varchar(4000), c49 varchar(4000), c50 varchar(4000),
+    c51 varchar(4000), c52 varchar(4000), c53 varchar(4000), c54 varchar(4000), c55 varchar(4000),
+    c56 varchar(4000), c57 varchar(4000), c58 varchar(4000), c59 varchar(4000), c60 varchar(4000),
+    c61 varchar(4000), c62 varchar(4000), c63 varchar(4000), c64 varchar(4000), c65 varchar(4000),
+    c66 varchar(4000), c67 varchar(4000), c68 varchar(4000), c69 varchar(4000), c70 varchar(4000),
+    c71 varchar(4000), c72 varchar(4000), c73 varchar(4000), c74 varchar(4000), c75 varchar(4000),
+    c76 varchar(4000), c77 varchar(4000), c78 varchar(4000), c79 varchar(4000), c80 varchar(4000),
+    c81 varchar(4000), c82 varchar(4000), c83 varchar(4000), c84 varchar(4000), c85 varchar(4000),
+    c86 varchar(4000), c87 varchar(4000), c88 varchar(4000), c89 varchar(4000), c90 varchar(4000),
+    c91 varchar(4000), c92 varchar(4000), c93 varchar(4000), c94 varchar(4000), c95 varchar(4000),
+    c96 varchar(4000), c97 varchar(4000), c98 varchar(4000), c99 varchar(4000), c100 varchar(4000)
+)
+        """
+    ],
     "mysql": [
         """
 create table if not exists ddiff_(
@@ -209,7 +274,7 @@ begin
 end;
         """
     ],
-    "postgres": [
+    "postgresql": [
         """
 create table if not exists ddiff_(
     cfg text,
@@ -278,28 +343,67 @@ create table if not exists ddiff_diffs_(
 # default sqlite database for ddiff tables
 SQLITE_SOURCE = {
     "database": "sqlite",
-    "con_string": os.path.join(os.environ.get('HOMEPATH', os.environ.get('HOME')), '.dbang', 'ddiff.db')
+    "con_string": os.path.join(USER_DIR, '.dbang', f"{CFG_MODULE}_{{}}.db")
 }
 # database for ddiff tables
-DDIFF_SOURCE = getattr(cfg, 'DDIFF_SOURCE', SQLITE_SOURCE)
+DDIFF_SOURCE = getattr(cfg, 'DDIFF_SOURCE', None)
+if DDIFF_SOURCE is None or DDIFF_SOURCE['database'] == 'sqlite':
+    # sqlite DDIFF_SOURCE is a special case
+    # as each thread (worker) should write to its own ddiff sqlite database
+    # so substitute the default SQLITE_SOURCE for the specified sqlite DDIFF_SOURCE
+    DDIFF_SOURCE = SQLITE_SOURCE
 DDIFF_SOURCE['setup'] = DDIFF_SETUP[DDIFF_SOURCE['database']] + DDIFF_SOURCE.get('setup', [])
 
-INSERT_RESULTS = """
+# TODO limit number for rows to MAX_FETCH_ROWS
+INSERT_SELECT = """
 insert into ddiff_ (
-    cfg,spec,run,source,{% for i, col in (c['pk'] + c['cols']) %}c{{loop.index}}{{"," if not loop.last}}{% endfor %})
-values (
-{%- if database == 'sqlite' %}
-    ?,?,?,?,{% for i, col in (c['pk'] + c['cols']) %}?{{"," if not loop.last}}{% endfor %}
-{%- elif database == 'postgres' %}
-    %s,%s,%s,%s,{% for i, col in (c['pk'] + c['cols']) %}%s{{"," if not loop.last}}{% endfor %}
+    cfg,spec,run,source,{% for col in c['select_list'] %}c{{loop.index}}{{"," if not loop.last}}{% endfor %})
+select
+{%- if database == 'mssql' %}
+    ?,?,?,?,{% for col in c['select_list'] %}{{col}}{{"," if not loop.last}}{% endfor %}
 {%- elif database == 'mysql' %}
-    %s,%s,%s,%s,{% for i, col in (c['pk'] + c['cols']) %}%s{{"," if not loop.last}}{% endfor %}
+    %s,%s,%s,%s,{% for col in c['select_list'] %}{{col}}{{"," if not loop.last}}{% endfor %}
 {%- elif database == 'oracle' %}
-    :cfg,:spec,:run,:source,{% for i, col in (c['pk'] + c['cols']) %}:{{i}}{{"," if not loop.last}}{% endfor %}
+    :cfg,:spec,:run,:source,{% for col in c['select_list'] %}{{col}}{{"," if not loop.last}}{% endfor %}
+{%- elif database == 'postgresql' %}
+    %s,%s,%s,%s,{% for col in c['select_list'] %}{{col}}{{"," if not loop.last}}{% endfor %}
+{%- elif database == 'sqlite' %}
+    ?,?,?,?,{% for col in c['select_list'] %}{{col}}{{"," if not loop.last}}{% endfor %}
+{%- endif %}
+from ({{q}}) t
+"""
+INSERT_VALUES = """
+insert into ddiff_ (
+    cfg,spec,run,source,{% for col in c['select_list'] %}c{{loop.index}}{{"," if not loop.last}}{% endfor %})
+values (
+{%- if database == 'mssql' %}
+    ?,?,?,?,{% for col in c['select_list'] %}?{{"," if not loop.last}}{% endfor %}
+{%- elif database == 'mysql' %}
+    %s,%s,%s,%s,{% for col in c['select_list'] %}%s{{"," if not loop.last}}{% endfor %}
+{%- elif database == 'oracle' %}
+    :cfg,:spec,:run,:source,{% for col in c['select_list'] %}:{{loop.index}}{{"," if not loop.last}}{% endfor %}
+{%- elif database == 'postgresql' %}
+    %s,%s,%s,%s,{% for col in c['select_list'] %}%s{{"," if not loop.last}}{% endfor %}
+{%- elif database == 'sqlite' %}
+    ?,?,?,?,{% for col in c['select_list'] %}?{{"," if not loop.last}}{% endfor %}
 {%- endif %}
 )
 """
 DELETE_THE_SAME = """
+{%- if database == 'mssql' %}
+with q as (
+    select {% for col in (c['pk'] + c['cols']) %}c{{loop.index}}{{"," if not loop.last}}{% endfor %}
+    from ddiff_
+    where cfg='{{cfg}}' and spec = '{{spec}}' and run = {{run[0]}} and source = '{{c['sources'][0]}}'
+    intersect
+    select {% for col in (c['pk'] + c['cols']) %}c{{loop.index}}{{"," if not loop.last}}{% endfor %}
+    from ddiff_
+    where cfg='{{cfg}}' and spec = '{{spec}}' and run = {{run[0]}} and source = '{{c['sources'][1]}}'
+)
+delete d from ddiff_ d
+where cfg = '{{cfg}}' and spec = '{{spec}}' and run = {{run[0]}}
+    and exists (select 1 from q where {% for col in c['pk'] %}q.c{{loop.index}}=d.c{{loop.index}}{{" and " if not loop.last}}{% endfor %})
+{%- else %}
 delete from ddiff_
 where cfg = '{{cfg}}' and spec = '{{spec}}' and run = {{run[0]}}
     and ({% for col in c['pk'] %}c{{loop.index}}{{"," if not loop.last}}{% endfor %}) in (
@@ -314,6 +418,7 @@ where cfg = '{{cfg}}' and spec = '{{spec}}' and run = {{run[0]}}
             where cfg='{{cfg}}' and spec = '{{spec}}' and run = {{run[0]}} and source = '{{c['sources'][1]}}'
             ) t
     )
+{%- endif %}
 """
 SELECT_THE_DIFF = """
 with d1 as (
@@ -397,14 +502,16 @@ INSERT_DIFFS = """
 insert into ddiff_diffs_ (
     cfg,spec,run,{% for i, col in (c['pk'] + c['cols'] + c['cols']) %}c{{loop.index}}{{"," if not loop.last}}{% endfor %})
 values (
-{%- if database == 'sqlite' %}
+{%- if database == 'mssql' %}
     ?,?,?,{% for i, col in (c['pk'] + c['cols'] + c['cols']) %}?{{"," if not loop.last}}{% endfor %}
-{%- elif database == 'postgres' %}
-    %s,%s,%s,{% for i, col in (c['pk'] + c['cols'] + c['cols']) %}%s{{"," if not loop.last}}{% endfor %}
 {%- elif database == 'mysql' %}
     %s,%s,%s,{% for i, col in (c['pk'] + c['cols'] + c['cols']) %}%s{{"," if not loop.last}}{% endfor %}
 {%- elif database == 'oracle' %}
     :cfg,:spec,:run,{% for i, col in (c['pk'] + c['cols'] + c['cols']) %}:{{i}}{{"," if not loop.last}}{% endfor %}
+{%- elif database == 'postgresql' %}
+    %s,%s,%s,{% for i, col in (c['pk'] + c['cols'] + c['cols']) %}%s{{"," if not loop.last}}{% endfor %}
+{%- elif database == 'sqlite' %}
+    ?,?,?,{% for i, col in (c['pk'] + c['cols'] + c['cols']) %}?{{"," if not loop.last}}{% endfor %}
 {%- endif %}
 )
 """
@@ -433,15 +540,24 @@ from ddiff_diffs_ dd
 where cfg = '{{cfg}}' and spec = '{{spec}}' and run = {{run[0]}}
 order by {% for i in pk_nums %}{{loop.index}}{{"," if not loop.last}}{% endfor %}
 """
-TEST_REPORT="""
+
+#select_tpl = Template(SELECT_RESULTS)
+insert_select_tpl = Template(INSERT_SELECT)
+insert_tpl = Template(INSERT_VALUES)
+delete_tpl = Template(DELETE_THE_SAME)
+select_tpl = Template(SELECT_THE_DIFF)
+select_diffs_tpl = Template(SELECT_DIFFS)
+insert_diffs_tpl = Template(INSERT_DIFFS)
+
+SPEC_REPORT_TEMPLATE="""
 <!DOCTYPE html>
 <html>
 <head>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta http-equiv="content-type" content="text/html; charset=UTF-8">
     <style type="text/css">
-        th {background:lightblue; padding: 1px 5px 1px 5px;}
-        td {background:lightgrey; padding: 1px 5px 1px 5px; text-align: left;}
+        th {background:lightblue; padding: 5px;}
+        td {background:#e2e2e2; padding: 5px; text-align: left;}
     </style>
 <title>Data Discrepancies Report ({{cfg}}): {{test|escape}}</title>
 </head>
@@ -483,15 +599,15 @@ TEST_REPORT="""
 </body>
 </html>
 """
-RUN_REPORT="""
+RUN_REPORT_TEMPLATE="""
 <!DOCTYPE html>
 <html>
 <head>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta http-equiv="content-type" content="text/html; charset=UTF-8">
     <style type="text/css">
-        th {background:lightblue; padding: 1px 5px 1px 5px;}
-        td {background:lightgrey; padding: 1px 5px 1px 5px; text-align: left;}
+        th {background:lightblue; padding: 5px;}
+        td {background:#e2e2e2; padding: 5px; text-align: left;}
     </style>
 <title>Data Discrepancies Report ({{cfg}})</title>
 </head>
@@ -507,14 +623,14 @@ RUN_REPORT="""
 {% if not_run > 0 %}{{not_run}} test{% if not_run > 1 %}s{% endif%} failed to run.{% endif %}
 </p>
 <table style="min-width:35%;">
-<tr><th>Test</th><th>DB1</th><th>DB2</th><th>Result</th><th>Warning</th><th>Doc</th></tr>
+<tr><th>Test</th><th>DB1</th><th>DB2</th><th>Result</th><th>Timing</th><th>Doc</th></tr>
 {%- endif %}
 <tr>
     <td>{{row[0]|escape}}</td>
     <td>{{row[3]|escape}}</td>
     <td>{{row[4]|escape}}</td>
-    <td>{% if row[1] == 0 %}<span style="color:green;">Success.</span>{% elif row[1] == -1 %}Failed to run.{% else %}<a href="{{cfg}}_{{row[0]}}.html" style="color:red;">Found {{row[1]}} discrepancies.</a>{% endif %}</td>
-    <td>{% if row[2] %}{% for warn in row[2] %}{{warn|escape}}{{"<br/>" if not loop.last}}{% endfor %}{% endif %}</td>
+    <td>{% if row[1] == 0 %}<span style="color:green;">Success.</span>{% elif row[1] == -1 %}Failed to run.{% else %}<a href="{{cfg}}_{{row[0]}}.html" style="color:red;">Found {{row[1]}} discrepancies.</a>{% endif %}{% if row[2] %}<br/>{% for warn in row[2] %}{{warn|escape}}{{"<br/>" if not loop.last}}{% endfor %}{% endif %}</td>
+    <td>{% if row[6] %}{{row[6]|escape}}{% endif %}</td>
     <td>{% if row[5] %}{{row[5]|escape}}{% endif %}</td>
 </tr>
 {%- if loop.last %}
@@ -528,14 +644,22 @@ RUN_REPORT="""
 </html>
 """
 
-#select_tpl = Template(SELECT_RESULTS)
-insert_tpl = Template(INSERT_RESULTS)
-delete_tpl = Template(DELETE_THE_SAME)
-select_tpl = Template(SELECT_THE_DIFF)
-select_diffs_tpl = Template(SELECT_DIFFS)
-insert_diffs_tpl = Template(INSERT_DIFFS)
-test_report_tpl = Template(TEST_REPORT)
-run_report_tpl = Template(RUN_REPORT)
+env = Environment(
+    loader=FileSystemLoader([CFG_DIR]),
+    autoescape=select_autoescape(['html', 'xml'])
+)
+
+spec_report_tpl = getattr(cfg, 'SPEC_REPORT_TEMPLATE', None)
+if spec_report_tpl and os.path.isfile(os.path.join(CFG_DIR, spec_report_tpl)):
+    spec_report_tpl = env.get_template(spec_report_tpl)
+else:
+    spec_report_tpl = Template(SPEC_REPORT_TEMPLATE)
+
+run_report_tpl = getattr(cfg, 'RUN_REPORT_TEMPLATE', None)
+if run_report_tpl and os.path.isfile(os.path.join(CFG_DIR, run_report_tpl)):
+    run_report_tpl = env.get_template(run_report_tpl)
+else:
+    run_report_tpl = Template(RUN_REPORT_TEMPLATE)
 
 
 def exec_sql(con, sql):
@@ -554,27 +678,27 @@ def exec_sql(con, sql):
         cur.close()
 
 
-def connection(src):
-    if isinstance(src, str):
-        source = sources[src]
-    elif isinstance(src, dict):
-        source = src
-    if not source.get('con'):
-        if source.get('con_string'):
-            source['con'] = \
-                source['lib'].connect(source['con_string'], **source.get('con_kwargs', dict()))
-        else:
-            source['con'] = source['lib'].connect(**source['con_kwargs'])
-        if source['database'] == 'oracle':
-            # see https://cx-oracle.readthedocs.io/en/latest/user_guide/sql_execution.html#fetched-number-precision.
-            def number_to_decimal(cursor, name, default_type, size, precision, scale):
-                if default_type == source['lib'].DB_TYPE_NUMBER:
-                    return cursor.var(dec.Decimal, arraysize=cursor.arraysize)
-            source['con'].outputtypehandler = number_to_decimal
-        if source.get('setup'):
-            logger.debug('-- setup')
-            exec_sql(source['con'], source['setup'])
-    return source['con']
+#def connection(src):
+#    if isinstance(src, str):
+#        source = sources[src]
+#    elif isinstance(src, dict):
+#        source = src
+#    if not source.get('con'):
+#        if source.get('con_string'):
+#            source['con'] = \
+#                source['lib'].connect(source['con_string'], **source.get('con_kwargs', dict()))
+#        else:
+#            source['con'] = source['lib'].connect(**source['con_kwargs'])
+#        if source['database'] == 'oracle':
+#            # see https://cx-oracle.readthedocs.io/en/latest/user_guide/sql_execution.html#fetched-number-precision.
+#            def number_to_decimal(cursor, name, default_type, size, precision, scale):
+#                if default_type == source['lib'].DB_TYPE_NUMBER:
+#                    return cursor.var(dec.Decimal, arraysize=cursor.arraysize)
+#            source['con'].outputtypehandler = number_to_decimal
+#        if source.get('setup'):
+#            logger.debug('-- setup')
+#            exec_sql(source['con'], source['setup'])
+#    return source['con']
 
 
 #def pump(run, spec_name, spec, con0, con, argrows, source_idx):
@@ -630,7 +754,7 @@ def connection(src):
 #    return rowcount
 
 
-def pump_and_diff(run, spec_name, spec, con0, con1, con2, argrows):
+def pump_and_diff(con0, con1, con2, run, spec_name, spec, argrows):
     cur0 = con0.cursor()
     curs = (con1.cursor(), con2.cursor())
     rowcounts = [0, 0]
@@ -652,16 +776,18 @@ def pump_and_diff(run, spec_name, spec, con0, con1, con2, argrows):
                 if query_tpl[i] is None:
                     query_tpl[i] = Template(spec['queries'][i])
                 query = query_tpl[i].render(argrows=argrows[part*200:part*200+200])
-                logger.debug('\n\n%s\n', query.strip())
-            else:
-                if part == 0:
-                    logger.debug('\n\n%s\n', query.strip())
-            curs[i].execute(query)
 
             if spec.get('cols') is None:
+                # get query metadata (description) to build SQL statements
+                curs[i].execute('select * from (' + query + ') t where 1 != 1')
+                curs[i].fetchall()
+                #logging.debug(f"{i} : {curs[i].description}")
+
+                spec['select_list'] = [d[0].lower() for d in curs[i].description]
                 spec['cols'] = [(i + 1, d[0].lower()) for i, d in enumerate(curs[i].description) if d[0].lower() not in spec['pk']]
                 spec['pk'] = [(i + 1, d[0].lower()) for i, d in enumerate(curs[i].description) if d[0].lower() in spec['pk']]
-                spec['insert'] = insert_tpl.render(c=spec, database=DDIFF_SOURCE['database'])
+                if not (con0 is con1) or not (con0 is con2):
+                    spec['insert'] = insert_tpl.render(c=spec, database=DDIFF_SOURCE['database'])
                 spec['delete'] = \
                     delete_tpl.render(
                         cfg=CFG_MODULE,
@@ -672,26 +798,50 @@ def pump_and_diff(run, spec_name, spec, con0, con1, con2, argrows):
                         op=spec.get('op', '=')
                     )
 
-            while rowcounts[i] < MAX_FETCH_ROWS:
-                res = curs[i].fetchmany(ONE_FETCH_ROWS)
-                if not res:
-                    break
-                rowcounts[i] += len(res)
-                #logger.info(res)
-                cur0.executemany(
-                    spec['insert'],
-                    # cx_Oracle requires list here - not a tuple, not a generator expr.
-                    [(CFG_MODULE, spec_name, run[0], spec['sources'][i]) + row for row in res]
-                )
+            if i == 0 and con0 is con1:
+                # ddiff DB is DB1
+                if not spec.get('insert_select_0'):
+                    spec['insert_select_0'] = \
+                        insert_select_tpl.render(c=spec, database=DDIFF_SOURCE['database'], q=query)
+                    logger.debug('\n\n%s\n', spec['insert_select_0'].strip())
+                curs[i].execute(spec['insert_select_0'], (CFG_MODULE, spec_name, run[0], spec['sources'][i]))
 
-        logger.debug('\n\n%s\n', spec['insert'].strip())
-        logger.debug('\n\n%s\n', spec['delete'].strip())
+            if i == 1 and con0 is con2:
+                # ddiff DB is DB2
+                if not spec.get('insert_select_1'):
+                    spec['insert_select_1'] = \
+                        insert_select_tpl.render(c=spec, database=DDIFF_SOURCE['database'], q=query)
+                    logger.debug('\n\n%s\n', spec['insert_select_1'].strip())
+                curs[i].execute(spec['insert_select_1'], (CFG_MODULE, spec_name, run[0], spec['sources'][i]))
+
+            if (i == 0 and not (con0 is con1)) or (i == 1 and not (con0 is con2)):
+                # ddiff DB is neither DB1 nor DB2
+                logger.debug(f"{i} :\n\n{query.strip()}\n")
+                curs[i].execute(query)
+                logging.debug(f"{i} : {curs[i].description}")
+                logger.debug(f"{i} :\n\n{spec['insert'].strip()}\n")
+                while rowcounts[i] < MAX_FETCH_ROWS:
+                    res = curs[i].fetchmany(ONE_FETCH_ROWS)
+                    if not res:
+                        break
+                    rowcounts[i] += len(res)
+                    #logger.info(res)
+                    cur0.executemany(
+                        spec['insert'],
+                        # cx_Oracle requires list here - not a tuple, not a generator expr.
+                        # mssql-python's row has special Row type that cannot be added to tuple
+                        [(CFG_MODULE, spec_name, run[0], spec['sources'][i]) + (tuple(row) if not isinstance(row, tuple) else row) for row in res]
+                    )
+        # these commits prevent deadlocks when con0 is MySQL or MSSQL
+        con0.commit()
+
         # delete equivalent rows from both datasets
+        logger.debug('\n\n%s\n', spec['delete'].strip())
         cur0.execute(spec['delete'])
         # limit max number of discrepancies
         cur0.execute(
             f"""
-            select count(*) 
+            select count(*)/2 -- there are rows from 2 sources
             from ddiff_ 
             where cfg='{CFG_MODULE}' and spec = '{spec_name}' and run = {run[0]}
             """
@@ -701,6 +851,8 @@ def pump_and_diff(run, spec_name, spec, con0, con1, con2, argrows):
             logger.debug(f"-- found {diffcount} discrepancies; go no further")
             #specs[spec_name]['warnings'].append(f"Found {diffcount} discrepancies; go no further.")
             break
+        # these commits prevent deadlocks when con0 is MySQL or MSSQL
+        con0.commit()
 
     curs[0].close()
     curs[1].close()
@@ -709,22 +861,23 @@ def pump_and_diff(run, spec_name, spec, con0, con1, con2, argrows):
     return rowcounts
 
 
-def process(run, spec_name, spec, con0, argrows, lvl=1):
+def process_spec(con0, con1, con2, run, spec_name, spec, argrows, lvl=1):
     """
     Process spec from config-file.
     """
+    t = datetime.now()
     return_code = 0
     try:
         assert (
             isinstance(spec, dict)
-            and {*spec.keys()} >= {'pk', 'sources', 'queries'}
+            and {*spec.keys()} >= {'pk', 'queries'}
             and spec['pk'].__class__ in (list, tuple)
-            and spec['sources'].__class__ in (list, tuple)
+            #and spec['sources'].__class__ in (list, tuple)
             and spec['queries'].__class__ in (list, tuple)
-            and len(spec['sources']) == 2
+            #and len(spec['sources']) == 2
             and len(spec['queries']) == 2
-            and sources.get(spec['sources'][0])
-            and sources.get(spec['sources'][1])
+            #and sources.get(spec['sources'][0])
+            #and sources.get(spec['sources'][1])
             and spec.get('op', '=').__class__ == str
             and spec.get('op', '=') in ('<', '>', '=')
             ), f"Bad spec {spec_name}"
@@ -741,15 +894,13 @@ def process(run, spec_name, spec, con0, argrows, lvl=1):
             cur0.execute(f"select count(*) from ddiff_diffs_ where cfg='{CFG_MODULE}' and spec='{spec_name}'")
             we_have_1st_pass_diffs = (cur0.fetchone()[0] > 0)
 
-        con1 = connection(spec['sources'][0])
-        con2 = connection(spec['sources'][1])
-
         rows = []
         if not args.two or we_have_1st_pass_diffs:
             # Initialize/Setup DB1 stuff related to this spec and level.
             if spec.get('setups') and spec['setups'][0]:
                 logger.debug(f"-- spec {spec['sources'][0]} setup, level {lvl}")
                 exec_sql(con1, spec['setups'][0])
+                con1.commit()
             # Get DB1 query results and insert them into ddiff_ table.
             #rowcount1 = pump(run, spec_name, spec, con0, con1, argrows, 0)
 
@@ -757,10 +908,11 @@ def process(run, spec_name, spec, con0, argrows, lvl=1):
             if spec.get('setups') and spec['setups'][1]:
                 logger.debug(f"-- spec {spec['sources'][1]} setup, level {lvl}")
                 exec_sql(con2, spec['setups'][1])
+                con2.commit()
             # Get DB2 query results and insert them into ddiff_ table.
             #rowcount2 = pump(run, spec_name, spec, con0, con2, argrows, 1)
 
-            rowcount1, rowcount2 = pump_and_diff(run, spec_name, spec, con0, con1, con2, argrows)
+            rowcount1, rowcount2 = pump_and_diff(con0, con1, con2, run, spec_name, spec, argrows)
 
             if MAX_FETCH_ROWS <= max(rowcount1, rowcount2):
                 specs[spec_name]['warnings'].append(f"DB1: {rowcount1} rows, DB2: {rowcount2} rows.")
@@ -783,14 +935,16 @@ def process(run, spec_name, spec, con0, argrows, lvl=1):
 
             if rows:
                 if spec.get(spec_name) and len(rows) <= MAX_DISCREPANCIES * (100 if args.one or args.two else 1):
-                    # Delete intermediate query results from ddiff_ table.
-                    con0.rollback()
+                    # Delete results of processed level before processing next level.
+                    #con0.rollback()
+                    cur0.execute(f"delete from ddiff_ where cfg = '{CFG_MODULE}' and spec = '{spec_name}' and run = {run[0]}")
+                    con0.commit()
                     if not spec[spec_name].get('sources'):
                         spec[spec_name]['sources'] = spec['sources']
                     if spec.get('op') and not spec[spec_name].get('op'):
                         spec[spec_name]['op'] = spec['op']
                     logger.info(f"Found {len(rows)} discrepancies at level {lvl}.")
-                    process(run, spec_name, spec[spec_name], con0, rows, lvl+1)
+                    process_spec(con0, con1, con2, run, spec_name, spec[spec_name], rows, lvl+1)
                 else:
                     titles=(x[0] for x in cur0.description)
 
@@ -815,7 +969,7 @@ def process(run, spec_name, spec, con0, argrows, lvl=1):
                                 #c=spec,
                                 pk_nums=[i+1 for i in range(len(spec['pk']))],
                                 col_nums=[i+1+len(spec['pk']) for i in range(0, len(spec['cols']) * 2, 2)],
-                                database=DDIFF_SOURCE['database'],
+                                database=DDIFF_SOURCE['database']
                             )
                         logger.debug('-- select persistent discrepancies from ddiff_diffs_, level {lvl}')
                         logger.debug('\n\n%s\n', select_diffs.strip())
@@ -827,8 +981,8 @@ def process(run, spec_name, spec, con0, argrows, lvl=1):
                         if spec.get(spec_name) and len(rows) > MAX_DISCREPANCIES * (100 if args.one or args.two else 1):
                             specs[spec_name]['warnings'].append(f"Found {len(rows)} discrepancies; go no further.")
                         cols_index = len(spec['pk'])
-                        test_report = \
-                            test_report_tpl.render(
+                        spec_report = \
+                            spec_report_tpl.render(
                                 cfg=CFG_MODULE,
                                 run=run,
                                 test=spec_name,
@@ -838,9 +992,9 @@ def process(run, spec_name, spec, con0, argrows, lvl=1):
                                 warnings=specs[spec_name].get('warnings'),
                                 sources=specs[spec_name]['sources']
                             )
-                        test_report_file = OUT_FILE.format(f"{CFG_MODULE}_{spec_name}")
-                        with open(test_report_file, 'w', encoding="UTF-8") as f:
-                            f.write(test_report)
+                        spec_report_file = OUT_FILE.format(f"{CFG_MODULE}_{spec_name}")
+                        with open(spec_report_file, 'w', encoding="UTF-8") as f:
+                            f.write(spec_report)
 
                     logger.info("Found %s discrepancies.", len(rows))
                     specs[spec_name]['result'] = len(rows)
@@ -855,30 +1009,42 @@ def process(run, spec_name, spec, con0, argrows, lvl=1):
         if spec.get('upsets') and spec['upsets'][0]:
             logger.debug(f"-- spec {spec['sources'][0]} upset, level {lvl}")
             exec_sql(con1, spec['upsets'][0])
+            con1.commit()
         # Finalize/Release DB2 stuff related to this spec and level.
         if spec.get('upsets') and spec['upsets'][1]:
             logger.debug(f"-- spec {spec['sources'][1]} upset, level {lvl}")
             exec_sql(con2, spec['upsets'][1])
+            con2.commit()
 
-        if not DDIFF_KEEP:
-            cur0.execute("delete from ddiff_")
+        if lvl == 1 and not DDIFF_KEEP:
+            cur0.execute(f"delete from ddiff_ where cfg = '{CFG_MODULE}' and spec = '{spec_name}'")
+            if not args.one:
+                cur0.execute(f"delete from ddiff_diffs_ where cfg = '{CFG_MODULE}' and spec = '{spec_name}'")
         con0.commit()
     except:
         logger.exception('EXCEPT')
-        for src in sources.values():
-            if src.get('con'):
-                src['con'].rollback()
+        con0.rollback()
+        con1.rollback()
+        con2.rollback()
         return_code = 1
+    t = (datetime.now() - t).seconds
+    specs[spec_name]['timing'] = f"{int(t//3600):02}:{int(t%3600//60):02}:{int(t%3600%60):02}"
     return return_code
 
 
 def sqlite_setup(sqlite):
 
+    # Represent floats as text without trailing zeros and a trailing dot
+    def adapt_float(val):
+        """Adapt float"""
+        s = str(val)
+        return s.rstrip('0').rstrip('.') if '.' in s else '0' if val == 0 else s
+
     # Represent decimals as text without trailing zeros and a trailing dot
     def adapt_decimal(val):
-        """Adapt decimal.Decimal to """
+        """Adapt decimal.Decimal"""
         s = str(val)
-        # postgres decimal 0 might turn into smth like 0E-20
+        # postgresql decimal 0 might turn into smth like 0E-20
         return s.rstrip('0').rstrip('.') if '.' in s else '0' if val == 0 else s
 
     # DeprecationWarning: The default date(time) adapter is deprecated as of Python 3.12
@@ -890,14 +1056,19 @@ def sqlite_setup(sqlite):
         """Adapt datetime.datetime to timezone-naive ISO 8601 date."""
         return val.isoformat()
 
-    def adapt_datetime_epoch(val):
-        """Adapt datetime.datetime to Unix timestamp."""
-        return int(val.timestamp())
+    #def adapt_datetime_epoch(val):
+    #    """Adapt datetime.datetime to Unix timestamp."""
+    #    return int(val.timestamp())
 
+    sqlite.register_adapter(float, adapt_float)
     sqlite.register_adapter(dec.Decimal, adapt_decimal)
     sqlite.register_adapter(date, adapt_date_iso)
     sqlite.register_adapter(datetime, adapt_datetime_iso)
-    sqlite.register_adapter(datetime, adapt_datetime_epoch)
+    #sqlite.register_adapter(datetime, adapt_datetime_epoch)
+
+    def convert_float(val):
+        """Convert str to float."""
+        return float(val)
 
     def convert_decimal(val):
         """Convert str to decimal.Decaimal object."""
@@ -911,64 +1082,174 @@ def sqlite_setup(sqlite):
         """Convert ISO 8601 datetime to datetime.datetime object."""
         return datetime.fromisoformat(val)
 
-    def convert_timestamp(val):
-        """Convert Unix epoch timestamp to datetime.datetime object."""
-        return datetime.fromtimestamp(val)
+    #def convert_timestamp(val):
+    #    """Convert Unix epoch timestamp to datetime.datetime object."""
+    #    return datetime.fromtimestamp(val)
 
-    sqlite.register_converter("decimal", convert_date)
+    sqlite.register_converter("float", convert_float)
+    sqlite.register_converter("decimal", convert_decimal)
     sqlite.register_converter("date", convert_date)
     sqlite.register_converter("datetime", convert_datetime)
-    sqlite.register_converter("timestamp", convert_timestamp)
+    #sqlite.register_converter("timestamp", convert_timestamp)
+
+
+def oracle_setup(lib, con):
+
+    # see https://cx-oracle.readthedocs.io/en/latest/user_guide/sql_execution.html#fetched-number-precision.
+    def number_to_decimal(cursor, name, default_type, size, precision, scale):
+        if default_type == lib.DB_TYPE_NUMBER:
+            return cursor.var(dec.Decimal, arraysize=cursor.arraysize)
+
+    con.outputtypehandler = number_to_decimal
+
+
+class ReturnValueThread(threading.Thread):
+    """
+    Class where join() returns value returned by target function
+    """
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.result = 0
+
+    def run(self):
+        if self._target is not None:
+            self.result = self._target(*self._args, **self._kwargs)
+
+    def join(self, *args, **kwargs):
+        super().join(*args, **kwargs)
+        return self.result
+
+
+def worker(worker_number, list_of_arg_tuples):
+    error_count = 0
+    #constr_to_source = dict()
+    sources_by_id = dict()
+    connections = dict()
+
+    # sqlite DDIFF_SOURCE is a special case
+    if DDIFF_SOURCE['database'] == 'sqlite':
+        DDIFF_SOURCE['con_string'] = \
+            DDIFF_SOURCE['con_string'].format(worker_number) if (args.one or args.two) else ":memory:"
+
+    # get worker ddiff connection
+    source = DDIFF_SOURCE
+    sources_by_id[id(source)] = source
+    connections[id(source)] = \
+        source['lib'].connect(source['con_string'], **source.get('con_kwargs', dict())) \
+        if source.get('con_string') else \
+        source['lib'].connect(**source['con_kwargs'])
+    con0 = connections[id(source)]
+    if source['database'] == 'oracle':
+        oracle_setup(source['lib'], con0)
+    if source.get('setup'):
+        logger.debug(f"-- \"ddiff\" setup")
+        exec_sql(con0, source['setup'])
+        con0.commit()
+
+    for arg_tuple in list_of_arg_tuples:
+        run, spec_name, spec, argrows = arg_tuple
+
+        # get worker connections for the spec
+        for source_no, source_name in enumerate(spec['sources']):
+            source = sources[source_name]
+            #constr = source['con_string'] if source.get('con_string') else str(source['con_kwargs'])
+            #constr_to_source[constr] = source
+            sources_by_id[id(source)] = source
+            if not connections.get(id(source)): #constr):
+                #connections[constr] = \
+                connections[id(source)] = \
+                    source['lib'].connect(source['con_string'], **source.get('con_kwargs', dict())) \
+                    if source.get('con_string') else \
+                    source['lib'].connect(**source['con_kwargs'])
+                if source['database'] == 'oracle':
+                    oracle_setup(source['lib'], connections[id(source)])
+                if source.get('setup'):
+                    logger.debug(f"-- \"{id(source)}\" setup")
+                    exec_sql(connections[id(source)], source['setup'])
+            if source_no == 0:
+                con1 = connections[id(source)]
+            if source_no == 1:
+                con2 = connections[id(source)]
+
+        # execute the spec
+        error_count += process_spec(con0, con1, con2, run, spec_name, spec, argrows)
+
+    logging.debug(f"{worker_number=}, {connections=}")
+
+    # shutdown all worker connections, including ddiff one (con0)
+    for source_id, con in connections.items():
+        source = sources_by_id[source_id]
+        if source.get('upset'):
+            logger.debug(f"-- \"{id(source)}\" upset")
+            exec_sql(con, source['upset'])
+            con.commit()
+        con.close()
+
+    if DDIFF_SOURCE['database'] == 'sqlite' and args.two:
+        os.remove(sqlite_db)
+
+    return error_count
 
 
 def main():
     logger.info("-- start %s", ' '.join(sys.argv))
 
-    error_count = 0
     _temp = datetime.now()
     run = [
         int(_temp.strftime('%Y%m%d%H%M%S')),
         _temp.strftime(DATETIME_FORMAT),
         _temp.strftime('%Y-%m-%d_%H-%M-%S')
     ]
-    logger.info("run %s", run[0])
-    logger.debug("args: %s", args)
+    logger.info(f"run {run[0]} with {PARALLEL_WORKERS} thread(s)")
 
-    con0 = None
+    error_count = 0
+    todo = []
     for spec_name, spec in specs.items():
         if SPEC in (spec_name, 'all', *spec.get('tags', [])):
             spec['sources'] = spec.get('sources', getattr(cfg, 'SOURCES', [None, None]))
-            if spec['sources'] == [None, None]:
-                logger.error('Skipping spec "%s" with no sources', spec_name)
+            if spec['sources'][0] not in sources or spec['sources'][1] not in sources:
+                logger.error('Skipping spec "%s" with unknown source', spec_name)
                 error_count += 1
                 continue
             for src in (sources[spec['sources'][0]], sources[spec['sources'][1]], DDIFF_SOURCE):
                 if src.get('lib') is None:
-                    if src['database'] == 'oracle':
+                    if src['database'] == 'mssql':
+                        import mssql_python
+                        src['lib'] = mssql_python
+                    elif src['database'] == 'mysql':
+                        import mysql.connector
+                        src['lib'] = mysql.connector
+                    elif src['database'] == 'oracle':
                         #import cx_Oracle
                         #src['lib'] = cx_Oracle
                         import oracledb
                         src['lib'] = oracledb
                         if src.get('oracledb_thick_mode'):
                             src['lib'].init_oracle_client()
-                    elif src['database'] == 'postgres':
+                    elif src['database'] == 'postgresql':
                         import psycopg
                         src['lib'] = psycopg
-                    elif src['database'] == 'mysql':
-                        import mysql.connector
-                        src['lib'] = mysql.connector
                     elif src['database'] == 'sqlite':
-                        import sqlite3
+                        #import sqlite3
                         src['lib'] = sqlite3
                         sqlite_setup(sqlite3)
                     else:
                         src['lib'] = None
-            con0 = connection(DDIFF_SOURCE)
-            error_count += process(run, spec_name, spec, con0, spec.get('argrows', []))
+            todo.append((run, spec_name, spec, spec.get('argrows', [])))
+            #error_count += process_spec(run, spec_name, spec, con0, spec.get('argrows', []))
+
+    # create and start worker threads
+    threads = []
+    for i in range(PARALLEL_WORKERS):
+        threads.append(ReturnValueThread(target=worker, args=(i, todo[i::PARALLEL_WORKERS])))
+        threads[-1].start()
+    # wait for all worker threads to terminate
+    for thread in threads:
+        error_count += thread.join()
 
     if not args.one:
         run_results = [
-            (spec['safe_name'], spec.get('result', -1), spec.get('warnings'), spec['sources'][0], spec['sources'][1], spec.get('doc'))
+            (spec['safe_name'], spec.get('result', -1), spec.get('warnings'), spec['sources'][0], spec['sources'][1], spec.get('doc'), spec.get('timing'))
             for spec_name, spec in specs.items() if SPEC in (spec_name, 'all', *spec.get('tags', []))
         ]
         succeeded = len([1 for x in run_results if x[1] == 0])
@@ -987,20 +1268,9 @@ def main():
         with open(run_report_file, 'w', encoding='UTF-8') as f:
             f.write(run_report)
 
-        if not DDIFF_KEEP:
-            cur0 = con0.cursor()
-            cur0.execute(f"delete from ddiff_diffs_ where cfg = '{CFG_MODULE}'")
-            con0.commit()
-
-    for src in sources.values():
-        if src.get('con') is not None:
-            if src.get('upset'):
-                logger.debug("-- upset")
-                exec_sql(src['con'], src.get('upset'))
-            src['con'].close()
-            src['con'] = None
-
+    logger.debug(f"{datetime.now() - _temp}")
     logger.info("-- done %s", f" WITH {error_count} ERRORS" if error_count else '')
+
     sys.exit(error_count)
 
 

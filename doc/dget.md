@@ -1,6 +1,6 @@
 # dget. Getting Data from Database into File
 
-	version 0.3
+	version 0.4.0
 
 The `dget` utility retrieves data from DB and writes it to CSV, XLSX, JSON or HTML file, according to the config file spec. Retrieved data may be written into a single file or a series of files, each with a specified number of rows. Optionally, the output files may individually be zipped.
 
@@ -22,22 +22,22 @@ Here are example specs for SQLite where 1000 rows with two fields are retrieved 
 The `"file"` parameter sets the file name and its format:
 
 ```
-# hello-dget.py
+# hello_dget.py
 
-SOURCE = sources['sqlite-source']
+SOURCE = sources['sqlite_source']
 QUERY = \
-	"""
-	with recursive numbers (n) as (
-		select 0 as n from dual
-		union all
-		select n + 1
-		from numbers
-		where n < 999
-	)
-	select 'Hello world!' as hello,
-	    42 as answer
-	from numbers
-	"""
+    """
+    with recursive numbers (n) as (
+        select 0 as n from dual
+        union all
+        select n + 1
+        from numbers
+        where n < 999
+    )
+    select 'Hello world!' as hello,
+        42 as answer
+    from numbers
+    """
 
 specs = {
     "hello1": {
@@ -67,7 +67,7 @@ specs = {
     ...
 }
 
-sources['sqlite-source']['setup'] = sources['sqlite-source'].get('setup', []) + [
+sources['sqlite_source']['setup'] = sources['sqlite_source'].get('setup', []) + [
     "create table if not exists dual as select 'X' as dummy"
 ]
 ```
@@ -87,34 +87,34 @@ Optional parameter `"header"` allows setting column titles:
 * as a list of strings, like in spec `"hello4"`,
 * or as a query against DB, which returns strings, like in spec `"hello1"`.
 
-If parameter `"header"` is omitted then `dget` uses column aliases from the `"query"`, like in spec `"hello2"`.
+If parameter `"header"` is missing then `dget` uses column aliases from the `"query"`, like in spec `"hello2"`.
 
-Test config file `dget-test-<source>.py` contains comments on all the spec parameters. Read it carefully and familiarize yourself with all the parameters.
+See test config files `test/dget_test_<database>.py` to familiarize yourself with all the parameters.
 
 ## Query with Parameters
 
 This spec shows a query with parameters:
 
 ```
-# hello-dget.py
+# hello_dget.py
 
-SOURCE = sources['sqlite-source']
+SOURCE = sources['sqlite_source']
 
 specs = {
-	"hello9": {
+    "hello9": {
         "file": "hello_param.csv",
         "query": """
             with recursive numbers (n) as (
-		        select 0 as n from dual
-		        union all
-		        select n + 1
-		        from numbers
-		        where n < 999
-	        )
+                select 0 as n from dual
+                union all
+                select n + 1
+                from numbers
+                where n < 999
+            )
             select 'Hello '||:name||'!' as hello,
-	            :num as answer
-	        from numbers
-	    """,
+                :num as answer
+            from numbers
+        """,
         "bind_args": {"name": "world", "num": 42.0}
     }
 }
@@ -125,10 +125,10 @@ Spec parameter `"bind_args"` is a dictionary where keys are names of bind variab
 To pass non-default values to the query bind variables, use CLI option `-a`, or `--arg`:
 
 ```
-dget.py -a Andrei -a 101 hello-dget hello9
+dget.py -a Andrei -a 101 hello_dget hello9
 ```
 
-In the above example named bind variables in SQL query for SQLite are designated with colon before a name. For other databases bind variables may be designated otherwise  – it depends on Python DB-API module for a database. To see examples for databases other than SQLite go to test config files `dget-test-sqlite.py`, `dget-test-oracle.py`, `dget-test-mysql.py`.
+In the above example named bind variables in SQL query for SQLite are designated with colon before a name. For other databases bind variables may be designated otherwise  – it depends on Python DBAPI module for a database. To see examples for other databases go to test config files `dget_test_postgresql.py`, `dget_test_oracle.py`, `dget_test_mysql.py`, `dget_test_mssql.py`, `dget_test_sqlite.py`.
 
 ## Dynamic Query
 
@@ -177,17 +177,17 @@ cn_h            137
 emp_h          1202
 ```
 
-Any metadata that you keep in your DB, including system catalog, may be used to dynamically build queries. So make use of the described feature to leverage your metadata.
+Any metadata that you have in your DB, including system catalog, may be used to dynamically build queries. So make use of the described feature to leverage your metadata.
 
 ## User-Defined File Templates
 
-JSON and HTML files are built by default using jinja2 templates `dget.json.jinja` and `dget.html.jinja`, respectively, located in `conf` directory. You may create your own jinja2 templates, using the same variables as in the default templates. To use your own template in a config file specification set its name in the spec parameter `"template"`.
+JSON and HTML files are built by default using embedded Jinja2 templates like those in files `cfg/dget_sample.json.jinja` and `cfg/dget_sample.html.jinja`, respectively. You may create your own Jinja2 templates based on sample files, and specify them in spec parameters `"json.template"` and `"html.template"`.
 
 ## Case #1
 
 You must have heard about self-service business intelligence (SSBI). What might it look like in a simple case?
 
-Day after day company's IT department gets requests to download from DB into `xlsx` file
+Day after day company's IT department gets requests to download from DB into XLSX file
 
 * all articles of category Shoes and of season Spring-Summer 23,
 * all articles with special transportation conditions,
@@ -256,50 +256,56 @@ Option `-t` or `--trace` instructs the `dget` to create a trace file in director
 
 ## Config File Parameters
 
-Config file parameters are variables with names in uppercase that define context for executing specs from that config file. See also [Config Files Structure](conf.md).
+Config file parameters are variables with names in uppercase that define context for executing specs from that config file. See also [Config Files Structure](config.md).
 
 The `dget` config file parameters are described below.
 
-| Parameter           | Default Value                            | Description                                    |
-| ------------------- | ---------------------------------------- | ---------------------------------------------- |
-| `DEBUGGING`         | `False`                                  | Debugging mode?                                |
-| `LOGGING`           | = DEBUGGING                              | Write to log file?                             |
-| `LOG_DIR`           | `./`                                     | Path to the directory with log files.          |
-| `OUT_DIR`           | `./`                                     | Path to the directory with output files.       |
-| `ENCODING`*         | `locale.getpreferredencoding()`          | Output file(s) encoding.                       |
-| `DATETIME_FORMAT`   | `"%Y-%m-%d %H:%M:%S%z"`                  | Datetime format; defaults to ISO 86101.        |
-| `DATE_FORMAT`       | `"%Y-%m-%d"`                             | Date format; defaults to ISO 86101.            |
-| `CSV_DIALECT`*      | `excel`                                  | CSV dialect as defined in Python module `csv`. |
-| `CSV_DELIMITER`*    | `csv.get_dialect(CSV_DIALECT).delimiter` | CSV fields delimiter.                          |
-| `PRESERVE_N_TRACES` | `10`                                     | Number of trace files per spec to preserve.    |
-| `SOURCE`*           |                                          | Name of a data source defined in `sources.py`. |
+| Parameter           | Default Value                            | Description                                                |
+| ------------------- | ---------------------------------------- | ---------------------------------------------------------- |
+| `DEBUGGING`         | `False`                                  | Debugging mode?                                            |
+| `LOGGING`           | = DEBUGGING                              | Write to log file?                                         |
+| `PARALLEL_WORKERS`  | 1                                        | Number of threads to run specs in parallel.                |
+| `LOG_DIR`           | `./`                                     | Path to the directory with log files.                      |
+| `OUT_DIR`           | `./`                                     | Path to the directory with output files.                   |
+| `ENCODING`*         | `locale.getpreferredencoding()`          | Output file(s) encoding.                                   |
+| `DATETIME_FORMAT`   | `"%Y-%m-%d %H:%M:%S%z"`                  | Datetime format; defaults to ISO 86101.                    |
+| `DATE_FORMAT`       | `"%Y-%m-%d"`                             | Date format; defaults to ISO 86101.                        |
+| `CSV_DIALECT`*      | `excel`                                  | CSV dialect as defined in Python module `csv`, or `naive`. |
+| `CSV_DELIMITER`*    | `csv.get_dialect(CSV_DIALECT).delimiter` | CSV fields delimiter.                                      |
+| `PRESERVE_N_TRACES` | `10`                                     | Number of trace files per spec to preserve.                |
+| `SOURCE`*           |                                          | Name of a data source defined in `sources.py`.             |
 \* config file parameter marked with asterisk may be overridden at spec level with a corresponding spec parameter.
+
+Additionally to CSV dialects in Python module `csv`, `CSV_DIALECT` parameter accepts `"naive"` dialect. This dialect writes and reads field values as they are, without any screening and/or quoting. Absence of field delimiters in field values is a responsibility of those who use such files.
 
 ## Spec Parameters
 
- Specs are found in a config file in the `specs` dictionary and contain **spec parameters**. See also [Config Files Structure](conf.md).
+ Specs are found in a config file in the `specs` dictionary and contain **spec parameters**. See also [Config Files Structure](config.md).
 
 Spec parameters for `dget` utility are described below. If not explicitly described as mandatory, a spec parameter is optional and may be omitted.
 
-| Spec Parameter         | Description                                                                                                                                                                                         |
-| ---------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `"tags"`               | List of tags attached to the spec.                                                                                                                                                                  |
-| `"source"`             | Name of a data source defined in `sources.py`. This parameter overrides config file parameter `SOURCE`.                                                                                             |
-| `"doc"`                | Short description/comment on the spec.                                                                                                                                                              |
-| `"setup"`              | List of SQL statements to be executed at a spec startup.                                                                                                                                            |
-| `"upset"`              | List of SQL statements to be executed at a spec completion.                                                                                                                                         |
-| **`"file"`**           | **MANDATORY** name of the output file(s). The file name extension determines the output format. Use [glob-pattern](https://docs.python.org/3/library/glob.html) to set names for a series of files. |
-| `"rows_per_file"`      | Number of rows (`int`) written to a separate file – in order to put data into a series of files of small size,                                                                                      |
-| **`"query"`**          | **MANDATORY** query that returns either a dataset to be written to output file(s) or a single row with single column named `query` that contains dynamically built query to be executed.            |
-| **`"bind_args"`**      | Python dictionary with names and default values for bind variables found in the`"query"`.                                                                                                           |
-| `"header"`             | Either a list of field names or a `select` query that retrun a single row with field names. If not set then column aliases from the `"query"` are used as field names.                              |
-| `"csv.encoding"`       | CSV file encodong. At spec level this parameter overrides config file parameter `ENCODING`.                                                                                                         |
-| `"csv.dialect"`        | CSV dialect as defined in Python module `csv`. At spec level this parameter overrides config file parameter `CSV_DIALECT`.                                                                          |
-| `"csv.delimiter"`      | CSV fields delimiter. At spec level this parameter overrides config file parameter `CSV_DELIMITER`.                                                                                                 |
-| `"csv.dec_separator"`  | Decimal separator for numbers in CSV file. The default is `.` (dot).                                                                                                                                |
-| `"json.encoding"`      | JSON file encodong. At spec level this parameter overrides config file parameter `ENCODING`.                                                                                                        |
-| `"json.template"`      | Name of jinja2 template file used to build JSON output file. The default is `dget.json.jinja`.                                                                                                      |
-| `"html.encoding"`      | HTML file encodong. At spec level this parameter overrides config file parameter `ENCODING`.                                                                                                        |
-| `"html.template"`      | Name of jinja2 template file used to build HTML output file. The default is `dget.html.jinja`.                                                                                                      |
-| `"html.title"`         | Title for HTML file. The default is spec name.                                                                                                                                                      |
-| `"html.dec_separator"` | Decimal separator for numbers in HTML file. The default is `.` (dot).                                                                                                                               |
+| Spec Parameter         | Description                                                                                                                                                                                                                                       |
+| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `"tags"`               | List of tags attached to the spec.                                                                                                                                                                                                                |
+| `"source"`             | Name of a data source defined in `sources.py`. This parameter overrides config file parameter `SOURCE`.                                                                                                                                           |
+| `"doc"`                | Short description/comment on the spec.                                                                                                                                                                                                            |
+| `"setup"`              | List of SQL statements to be executed at a spec startup.                                                                                                                                                                                          |
+| `"upset"`              | List of SQL statements to be executed at a spec completion.                                                                                                                                                                                       |
+| **`"file"`**           | **MANDATORY** name of the output file(s). The file name extension determines the output format. Use [`printf`-style template](https://docs.python.org/3/library/stdtypes.html#printf-style-string-formatting) to set names for a series of files. |
+| `"rows_per_file"`      | Number of rows (`int`) written to a separate file – in order to put data into a series of files of small size.                                                                                                                                    |
+| **`"query"`**          | **MANDATORY** query that returns either a dataset to be written to output file(s) or a single row with single column named `query` that contains dynamically built query to be executed.                                                          |
+| **`"bind_args"`**      | Python dictionary with names and default values for bind variables found in the`"query"`.                                                                                                                                                         |
+| `"header"`             | Either a list of field names or a `select` query that retrun a single row with field names. If not set then column aliases from the `"query"` are used as field names.                                                                            |
+| `"csv.encoding"`       | CSV file encodong. At spec level this parameter overrides config file parameter `ENCODING`.                                                                                                                                                       |
+| `"csv.header"`         | Write field names in CSV file? True - yes (by default). False - no.                                                                                                                                                                               |
+| `"csv.dialect"`        | CSV dialect as defined in Python module `csv`. At spec level this parameter overrides config file parameter `CSV_DIALECT`.                                                                                                                        |
+| `"csv.delimiter"`      | CSV fields delimiter. At spec level this parameter overrides config file parameter `CSV_DELIMITER`.                                                                                                                                               |
+| `"csv.dec_separator"`  | Decimal separator for numbers in CSV file. The default is `.` (dot).                                                                                                                                                                              |
+| `"html.encoding"`      | HTML file encodong. At spec level this parameter overrides config file parameter `ENCODING`.                                                                                                                                                      |
+| `"html.header"`        | Write column titles in HTML file? True - yes (by default). False - no.                                                                                                                                                                            |
+| `"html.template"`      | Name of Jinja2 template file used to build HTML output file. See sample template file `cfg/dget_sample.html.jinja`.                                                                                                                               |
+| `"html.title"`         | Title for HTML file. The default is spec name.                                                                                                                                                                                                    |
+| `"html.dec_separator"` | Decimal separator for numbers in HTML file. The default is `.` (dot).                                                                                                                                                                             |
+| `"json.encoding"`      | JSON file encodong. At spec level this parameter overrides config file parameter `ENCODING`.                                                                                                                                                      |
+| `"json.template"`      | Name of Jinja2 template file used to build JSON output file. See sample template file `cfg/dget_sample.json.jinja`.                                                                                                                               |
+| `"xlsx.header"`        | Write column titles in XLSX file? True - yes (by default). False - no.                                                                                                                                                                            |

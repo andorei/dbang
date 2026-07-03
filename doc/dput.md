@@ -1,8 +1,6 @@
 # dput. Loading Data from File into Database
 
-	version 0.3
-
-To load data from your files to your DB first run test spec from test config file `dput-test-<source>.py` against your DB. Then `dput` will create tables `ida` and `ida_lines` in the DB, and these tables will be used to load data.
+	version 0.4.0
 
 The `dput` utility loads data from CSV, XLSX, JSON files and other text files according to a spec in config file. Data may be loaded from a single file or from a series of files. If input files are zipped then they are automatically unzipped before loading data.
 
@@ -73,31 +71,31 @@ Notice that fields of JSON objects have no particular order.
 
 ## Basic Usage
 
-Here are example specs for SQLite to load data from test data files into table `ida_lines`.
+Here are example specs for SQLite to load data into the default interface table `ida_lines`.
 
 The `"file"` parameter sets the name of a file (found in the `IN_DIR` directory) and its format:
 
 ```
-# hello-dput.py
+# hello_dput.py
 
 IN_DIR = os.path.join(os.path.dirname(__file__), '..', 'in')
-SOURCE = sources['sqlite-source']
+SOURCE = sources['sqlite_source']
 
 specs = {
-    "hello-csv": {
+    "hello_csv": {
         "file": "test.csv"
     },
-    "hello-xlsx": {
+    "hello_xlsx": {
         "file": "test.xlsx"
     },
-    "hello-json": {
+    "hello_json": {
         "file": "test.json",
         "insert_data": lambda row: (row["code"], row["name"], row["alpha2"], row["alpha3"])
     },
-    "hello-zip": {
+    "hello_zip": {
         "file": "test_zip.zip"
     },
-    "hello-series": {
+    "hello_series": {
         "file": "test_000???.csv",
         "insert_data": lambda row: (row[3], row[0], row[1])
     },
@@ -105,33 +103,33 @@ specs = {
 }
 ```
 
-The `"file"` parameter in spec `"hello-zip"` tells `dput` to first unzip the file and then load it. A `zip` archive should contain a single file with the same name as `zip`-file and one of extensions `.csv`, `.xlsx` and `.json`.
+The `"file"` parameter in spec `"hello_zip"` tells `dput` to first unzip the file and then load it. A `zip` archive should contain a single file with the same name as `zip`-file and one of extensions `.csv`, `.xlsx` and `.json`.
 
-The `"file"` parameter in spec `"hello-series"` sets [glob-pattern](https://docs.python.org/3/library/glob.html) for a series of files to load. The matched files will be loaded in alphabetical order.
+The `"file"` parameter in spec `"hello_series"` sets [glob-pattern](https://docs.python.org/3/library/glob.html) for a series of files to load. The matched files will be loaded in alphabetical order.
 
-The `"insert_data"` parameter in spec `"hello-json"` defines function to transform JSON object into data row – a list or tuple of values – to be inserted into a database table. The function's input argument is a Python `dict` representing a JSON object. 
+The `"insert_data"` parameter in spec `"hello_json"` defines function to transform JSON object into data row – a list or tuple of values – to be inserted into a database table. The function's input argument is a Python `dict` representing a JSON object. 
 
-The `"insert_data"` parameter in spec `"hello-series"` demonstrates the possibility of selecting and rearranging fields of CSV-file. The function's input argument is a list or tuple of values of CSV-file fields.
+The `"insert_data"` parameter in spec `"hello_series"` demonstrates the possibility of selecting and rearranging fields of CSV file. The function's input argument is a list or tuple of values of CSV file fields.
 
 ## Loading Procedure
 
-Data from `xlsx`, `csv` and other text files are loaded line by line in the order of lines in a file; from a `json` file – object by object in the order of JSON objects in JSON array.
+Data from CSV, XLSX and other text files are loaded line by line in the order of lines in a file; from a JSON file – object by object in the order of JSON objects in JSON array.
 
 The procedure of loading data with `dput` optionally includes:
 
 1. checking if a line meets a certain condition to be loaded;
-2. building a list of fields to insert into a database table  – when data comes from `json` file or when we only need some of the fields;
+2. building a list of fields to insert into a database table  – when data comes from JSON file or when we only need some of the fields;
 3. checking if all the rows inserted into a database table meet certain conditions, including consistency with existent data,
 4. copying (and transforming) rows from an interface table into target database tables where the data belong.
 
-If rows loaded into interface table do not meet integrity or consistency requirements, they will not be loaded into target database tables and a user will get error message(s).
+If rows loaded into interface table do not meet integrity or consistency requirements, they will not be loaded into target tables and a user will get error message(s).
 
 That said the simplest spec for `dput` 
 * only contains file name to load,
 * does not evoke steps 1–4 described above,
-* allows loading all fields of all rows from input files into the default interface table `ida_lines`.
+* loads all fields of all rows from input file(s) into the default interface table `ida_lines`.
 
-Tables `ida` and `ida_lines` are automatically created in a database when executing specs from test config files and are afterward used by default for all user defined specifications. Here is their structure (in PostgreSQL DB):
+When executing a spec, `dput` automatically creates tables `ida` and `ida_lines` in a database. Here is their structure (in PostgreSQL DB):
 
 ```
 create table if not exists ida (
@@ -168,7 +166,7 @@ create table if not exists ida_lines (
 ```
 
 
-Table `ida` keeps the facts of loads, in particular:
+Table `ida` keeps the loading facts, in particular:
 
 * load identifier `iload`,
 * load time `idate`,
@@ -177,7 +175,7 @@ Table `ida` keeps the facts of loads, in particular:
 * name of a spec `entity`,
 * optional message `imess` written on load completion.
 
-Table `ida_lines` keeps all the lines from the file, and also
+Table `ida_lines` keeps all the lines from input file(s), and also
 
 * load identifier `iload`,
 * line number `iline`,
@@ -198,17 +196,17 @@ tells `dput` to keep 10 last loads for each spec in the interface tables. When u
 
 Keeping loaded data in interface tables for a while may turn helpful when you need to manually check what data was loaded by users or what errors were detected.
 
-Test config files `dput-test-<source>.py` contain comments on all the spec parameters. Read it carefully and familiarize yourself with all the parameters.
+See test config files `test/dput_test_<database>.py` to familiarize yourself with all the parameters.
 
 ## Loading Data into the Default Table
 
-Let's see how `dput` works – using test file `test.csv` and specs from the config file `dput-test-postgres.py`:
+Let's see how `dput` works – using spec from the config file `test/dput_test_postgresql.py`:
 
 ```
 specs = {
     ...
     "csv_ida_test": {
-        "source": "postgres-source",
+        "source": "postgresql-source",
         "file": "test.csv",
         "validate_actions": [
             """
@@ -251,11 +249,11 @@ According to the above spec, `dput` utility
 	else
 	* writes error messages to the log file.
 
-When loading data in table `ida_lines` the four fields' values will be put in columns `c1`, `с2`, `с3` and `с4`, respectfully. As table `ida_lines` has 100 columns `c1`, .. `c100`, the number of fields in a file to load may not be greater than 100.
+When loading data in table `ida_lines` the four fields' values go into columns `c1`, `с2`, `с3` and `с4`, respectfully. As table `ida_lines` has 100 columns `c1`, .. `c100`, the number of fields in a file to load may not be greater than 100.
 
-The status of lines `istat` right after loading (step 1) equals 0 - Waiting to be processed.
+The status of lines `istat` right after loading (step 1) equals 0: "Waiting to be processed".
 
-List `"validate_actions"` contains SQL statement to verify data compliance to the requirements. These statements get executed by `dput` (step 2) after the lines are loaded into table `ida_lines`.
+The `"validate_actions"` list contains SQL statement to verify data compliance to the requirements. These statements get executed by `dput` (step 2) after loading data into table `ida_lines`.
 
 The three `update` statements in the spec above check, respectfully:
 
@@ -263,17 +261,17 @@ The three `update` statements in the spec above check, respectfully:
 * that the length of 2-symbol country code is 2,
 * that the length of 3-symbol country code is 3.
 
-If the data does not meet requirements the line in `ida_lines` gets marked as erroneous (`istat = 2`), and error message is put into the field `ierrm`. In this case the processing is stopped after executing `"validate_actions"`, and `dput` writes bad line numbers and error messages to the log file.
+If the data does not meet requirements the row in `ida_lines` gets marked as erroneous (`istat = 2`), and error message is put into the field `ierrm`. In this case the processing is stopped after executing `"validate_actions"`, and `dput` writes bad line numbers and error messages to the log file.
 
-If `"validate_actions"` do not detect errors then `dput` executes SQL statements from the list `"process_actions"` (step 3) and inserts the verified data from `ida_lines` into target tables. In the test spec the list `"process_actions"` contains a single statement that deletes loaded data from tables `ida` and `ida_lines`. Thus, instead of inserting data into target tables, test data is just deleted from the DB.
+If `"validate_actions"` do not detect errors then `dput` executes SQL statements from the list `"process_actions"` (step 3) to insert the verified data from `ida_lines` into target tables. In the test spec above the list `"process_actions"` contains a single statement that deletes loaded data from tables `ida` and `ida_lines`. Thus, instead of inserting data into target tables, test data is just deleted from the DB.
 
-SQL statements in lists `"validate_actions"` and `"process_actions"` contain a bind variable for a load identifier `iload`. While bind variables for PostgreSQL are designated with `%s`, bind variables for other DBs may be designated differently, depending on the Python DB-API module for a database. See test config files for other databases `dput-test-sqlite.py`, `dput-test-oracle.py`, `dput-test-mysql.py`.
+SQL statements in lists `"validate_actions"` and `"process_actions"` contain a bind variable for a load identifier `iload`. While bind variables for PostgreSQL are designated with `%s`, bind variables for other DBs may be designated differently, depending on the Python DBAPI module for a database. See examples of bind variables usage in test config files `dput_test_postgresql.py`, `dput_test_oracle.py`, `dput_test_mysql.py`, `dput_test_mssql.py`, `dput_test_sqlite.py`.
 
-If at least one row in `ida_lines` were marked as erroneous, then `dput` sets the load status `ida.istat` to 2 - Error. If all the loaded rows were processed successfully then `dput` sets the load status `ida.istat` to 1 - Processing succeeded.
+If at least one row in `ida_lines` were marked as erroneous, then `dput` sets the load status `ida.istat` to 2: "Error". If all the loaded rows were processed successfully then `dput` sets the load status `ida.istat` to 1: "Success".
 
 ## Loading Selected Rows and Fields
 
-Optional spec parameter `"skip_lines"` specifies number of lines to skip at the beginning of an input file.  For example, value `1` makes `dput` skip the first line (presumably a header) when loading `csv` or `xlsx` files.
+Optional spec parameter `"skip_lines"` specifies number of lines to skip at the beginning of an input file.  For example, value `1` makes `dput` skip the first line (presumably a header) when loading CSV or XLSX files.
 
 Optional spec parameter `"insert_data"` defines a function that allows
 * load only explicitly chosen fields,
@@ -293,33 +291,33 @@ Specification `"selected_ida_test"` below demonstrates just such a selective loa
 }
 ```
 
-Function set with parameter `"insert_data"`,
+Function set with parameter `"insert_data"` generally
 * is called for each line of input file,
-* gets as an argument a list or a tuple of all fields' values of a line,
-* returns a list or a tuple of fields' values that should be loaded,
-* or return `None`, in which case the line is skipped and not loaded.
+* gets as an argument a list or a tuple of all fields' values of a line, or a text line as is if parameter `"text_lines"` is set to True,
+* returns a list or a tuple of fields' values that should be loaded to DB,
+* or return `None`, in which case the line is skipped.
 
-The lambda-function in the above spec returns a tuple `(<numeric counrty code>, <contry name>)` for lines where the country name starts with a vowel, and `None` for other lines. Thus, only some fields of some lines are going to be loaded.
+The lambda-function in the above spec returns a tuple `(<numeric counrty code>, <contry name>)` for lines where the country name starts with a vowel, and `None` for other lines. Thus, only two fields of selected lines are going to be loaded.
 
 ## Loading Data from JSON file
 
-The `"insert_data"` parameter is mandatory in a spec that loads data from a JSON file, even in case when rows are loaded into the default table `ida_lines`. The thing is that the fields of JSON objects – or JSON file "rows" – could be put in any order (see [Test Files to Load](#test-files-to-load)).
+The `"insert_data"` parameter is mandatory in a spec that loads data from a JSON file, even in case when rows are loaded into the default table `ida_lines`. The thing is that the fields of JSON objects could be put in any order (see [Test Files to Load](#test-files-to-load)).
 
 An example specification to load data from `test.json` into table `ida_lines`:
 
 ```
 "json_ida_test": {
-	"file": "test.json",
-	#
-	# tuple of values to insert into ida_lines table
-	#
-	"insert_data": lambda row: (row["code"], row["name"], row["alpha2"], row["alpha3"])
+    "file": "test.json",
+    #
+    # tuple of values to insert into ida_lines table
+    #
+    "insert_data": lambda row: (row["code"], row["name"], row["alpha2"], row["alpha3"])
 }
 ```
 
 ## Loading Data into User-Defined Table
 
-Instead of loading data rows into table `ida_lines` it is possible to load them into other table. To make `dput` load data into such a table, you should set spec parameters `"insert_actions"` and `"insert_data"`.
+Instead of loading data into table `ida_lines` it is possible to load rows into other table(s). To make `dput` load data into a specific table, you should set spec parameters `"insert_actions"` and `"insert_data"`.
 
 Suppose you have interface table `test` designed to accept data on countries:
 
@@ -332,22 +330,22 @@ create table if not exists test (
 )
 ```
 
-The following spec allows loading data from file `test.csv` into table `test`:
+The following spec loads data from file `test.csv` into table `test`:
 
 ```
 "csv_test_test": {
-	"file": "test.csv",
-	"insert_actions": """
-		insert into test (code, name, alpha2, alpha3)
-		values (%s, %s, %s, %s)
-	""",
-	"insert_data": lambda row: (row[3], row[0], row[1], row[2])
+    "file": "test.csv",
+    "insert_actions": """
+        insert into test (code, name, alpha2, alpha3)
+        values (%s, %s, %s, %s)
+    """,
+    "insert_data": lambda row: (row[3], row[0], row[1], row[2])
 }
 ```
 
-Spec parameter `"insert_actions"` defines SQL statement `insert` to insert a row into table `test`. As the order of columns in `insert` statement differs from the order of fields in the CSV-file (see [Test Files to Load](#test-files-to-load)), the `"insert_data"` parameter defines a Python lambda-function which rearranges the fields in the order required by the SQL statement.
+Spec parameter `"insert_actions"` defines SQL statement `insert` to insert a row into table `test`. As the order of columns in `insert` statement differs from the order of fields in the CSV file (see [Test Files to Load](#test-files-to-load)), the `"insert_data"` parameter defines a Python lambda-function which rearranges the fields in the order required by the SQL statement.
 
-If you specify columns in the `insert` statement in the order of fields in CSV-file, then `"insert_data"` parameter may be omitted:
+If you specify columns in the `insert` statement in the order of fields in CSV file, then `"insert_data"` parameter may be omitted:
 
 ```
 "csv_test_test": {
@@ -359,11 +357,11 @@ If you specify columns in the `insert` statement in the order of fields in CSV-f
 }
 ```
 
-In this case, it is important that each of the four fields of a CSV file line has a corresponding column in the table `test`. Whereas, the `"insert_data"` lambda-function allows choosing (and rearrange) for insertion any subset of the fields.
+In this case, it is important that each of the four fields of a CSV file line has a corresponding column in the `test` table. Whereas, the `"insert_data"` lambda-function allows choosing and rearranging for insertion any subset of the fields.
 
-Even when loading data in a user-defined table specified in the `"insert_actions"`, the `dput` utility registers the load in the `ida` table with status 0 - waiting for being processed.
+Even when loading data in a user-defined table specified in the `"insert_actions"`, the `dput` utility registers the load in the `ida` table with status 0: "Waiting to be processed".
 
-If SQL statements in the lists `"validate_actions"` and `"process_actions"` set the load status in the column `ida.istat` to 2 - error, and put an error message in the column `ida.imess`, then `"dput"` writes that error message in the log file. Otherwise, the load status is set to 1 - processing succeeded, and a success message is written in the log file.
+If SQL statements in the lists `"validate_actions"` and `"process_actions"` set the load status in the column `ida.istat` to 2: "Error", and put an error message in the column `ida.imess`, then `"dput"` writes that error message in the log file. Otherwise, the load status is set to 1: "Success", and a success message is written in the log file.
 
 ## Loading Data with Unpacking Nested List
 
@@ -430,23 +428,23 @@ Here are the first two JSON objects in the file:
 {
     "region": "Antarctica",
     "countries": [
-		{"name": "Antarctica", "alpha2": "AQ", "alpha3": "ATA", "code": "010"},
-		{"name": "Bouvet Island", "alpha2": "BV", "alpha3": "BVT", "code": "074"}
+        {"name": "Antarctica", "alpha2": "AQ", "alpha3": "ATA", "code": "010"},
+        {"name": "Bouvet Island", "alpha2": "BV", "alpha3": "BVT", "code": "074"}
     ]
 },
 {
     "region": "Africa",
     "countries": [
-		{"name": "Comoros", "alpha2": "KM", "alpha3": "COM", "code": "174"},
-		{"name": "Djibouti", "alpha2": "DJ", "alpha3": "DJI", "code": "262"},
-		...
+        {"name": "Comoros", "alpha2": "KM", "alpha3": "COM", "code": "174"},
+        {"name": "Djibouti", "alpha2": "DJ", "alpha3": "DJI", "code": "262"},
+        ...
 ```
 
 The data in the files naturally maps onto two tables:
 1. (parent) table of regions, and
 2. (child) table of countries referring to the table of regions.
 
-In order to load data of a single line (JSON object) into multiple tables, you need to provide for each table an `insert` statement and values to insert:
+In order to load data of a single JSON object into multiple tables, you need to provide for each table an `insert` statement and values to insert:
 
 ```
 "nested_01_test": {
@@ -468,7 +466,7 @@ Here, spec parameters `"insert_actions"` and `"insert_data"` are a list of strin
 
 Notice that the first function returns a tuple representing a row for the (parent) table of regions. While the second function returns a list of tuples representing a set of rows for the (child) table of countries.
 
-Loading data of a single input line into multiple tables may be useful not only for JSON files. Files `csv` and `xlsx` as well may contain in a single line data that maps onto more than one table. Data in such files might be called denormalized – from the relational point of view.
+Loading data of a single input line into multiple tables may be useful not only for JSON files. CSV and XLSX files as well may contain in a single line data that maps onto more than one table. Data in such files might be called denormalized – from the relational point of view.
 
 ## Loading Nested Tables into the Default Table
 
@@ -519,11 +517,11 @@ Sometimes you need to load in a database data that is represented in text files 
 * a file, where a few lines at the beginning describe data that follows, or
 * a file, where lines have fields of fixed length without any delimiters.
 
-Spec parameter `"pass_lines": True` tells `dput` to pass lines from input text file "as is" to function specified in spec parameter `"insert_data"`. Lines are passed as Python strings without any attempted splitting into fields.
+Spec parameter `"text_lines": True` tells `dput` to pass lines from input text file "as is" to function specified in spec parameter `"insert_data"`. Lines are passed as Python strings without any attempted splitting into fields.
 
 Then, the `"insert_data"` function parses the string and returns a list or a tuple of fields' values to load into a database table.
 
-Test data file `test_special.dat` contains data on world countries in lines of the following format:
+Test data file `test_xxx.dat` contains data on world countries in lines of the following format:
 1. 2-letter country code – positions from 1 to 2,
 2. 3-letter country code – positions from 3 to 5,
 3. 3-digit country code – positions from 6 to 8,
@@ -545,12 +543,12 @@ ZMZMB894Zambia
 ZWZWE716Zimbabwe
 ```
 
-Spec `"special_03_ida"` allows loading into table `ida_lines` four separate fields extracted from input lines with function `special_03_data` (it as well might be a lambda-function):
+Spec `"xxx_03_ida"` allows loading into table `ida_lines` four separate fields extracted from input lines with function `xxx_03_data` (it as well might be a lambda-function):
 
 ```
 ...
 
-def special_03_ida(line):
+def xxx_03_ida(line):
     """
     line    - line content, e.g. AFAFG004Afghanistan
     """
@@ -558,13 +556,13 @@ def special_03_ida(line):
 
 
 specs = {
-	...
-    "special_03_ida": {
-        "file": "test_special.dat",
-        "pass_lines": True,
-        "insert_data": special_03_ida
+    ...
+    "xxx_03_ida": {
+        "file": "test_xxx.dat",
+        "text_lines": True,
+        "insert_data": xxx_03_ida
     },
-	...
+    ...
 }
 ```
 
@@ -574,9 +572,9 @@ Spec parameter `"insert_data"` may set functions of three kinds:
 
 | Function kind               | Description                                                                                                                                        |
 | --------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `<func>(row)`               | `row` - list or tuple of fields' values, or line from input file as is if `"pass_lines": True`                                                     |
-| `<func>(line_no, row)`      | `line_no` - number of line from a file, `row` - list or tuple of fields' values, or line from input file as is if `"pass_lines": True`             |
-| `<func>(iload, iline, row)` | `iload` - load ID, `iline` - number of loaded line, `row` - list or tuple of fields' values, or line from input file as is if `"pass_lines": True` |
+| `<func>(row)`               | `row` - list or tuple of fields' values, or line from input file as is if `"text_lines": True`                                                     |
+| `<func>(line_no, row)`      | `line_no` - number of line from a file, `row` - list or tuple of fields' values, or line from input file as is if `"text_lines": True`             |
+| `<func>(iload, iline, row)` | `iload` - load ID, `iline` - number of loaded line, `row` - list or tuple of fields' values, or line from input file as is if `"text_lines": True` |
 
 When loading data from a single file, the number of file line `line_no` and the number of loaded line `iline` are the same.
 
@@ -629,7 +627,7 @@ Option `-t` or `--trace` instructs the `dput` to create a trace file in director
 
 ## Config File Parameters
 
-Config file parameters are variables with names in uppercase that define context for executing specs from that config file. See also [Config Files Structure](conf.md).
+Config file parameters are variables with names in uppercase that define context for executing specs from that config file. See also [Config Files Structure](config.md).
 
 The `dput` config file parameters are described below.
 
@@ -637,6 +635,7 @@ The `dput` config file parameters are described below.
 | ------------------- | ---------------------------------------- | ---------------------------------------------------- |
 | `DEBUGGING`         | `False`                                  | Debugging mode?                                      |
 | `LOGGING`           | = DEBUGGING                              | Write to log file?                                   |
+| `PARALLEL_WORKERS`  | 1                                        | Number of threads to run specs in parallel.          |
 | `LOG_DIR`           | `./`                                     | Path to the directory with log files.                |
 | `IN_DIR`            | `./`                                     | Path to the directory with input files to load.      |
 | `ENCODING`*         | `locale.getpreferredencoding()`          | Input file(s) encoding.                              |
@@ -647,9 +646,11 @@ The `dput` config file parameters are described below.
 | `SOURCE`*           |                                          | Name of a data source defined in `sources.py`.       |
 \* config file parameter marked with asterisk may be overridden at spec level with a corresponding spec parameter.
 
+Additionally to CSV dialects in Python module `csv`, `CSV_DIALECT` parameter accepts `"naive"` dialect. This dialect writes and reads field values as they are, without any screening and/or quoting. Absence of field delimiters in field values is a responsibility of those who use such files.
+
 ## Spec Parameters
 
-Specs are found in a config file in the `specs` dictionary and contain **spec parameters**. See also [Config Files Structure](conf.md).
+Specs are found in a config file in the `specs` dictionary and contain **spec parameters**. See also [Config Files Structure](config.md).
 
 Spec parameters for `dput` utility are described below. If not explicitly described as mandatory, a spec parameter is optional and may be omitted.
 
@@ -661,14 +662,15 @@ Spec parameters for `dput` utility are described below. If not explicitly descri
 | `"setup"`            | List of SQL statements to be executed at a spec startup.                                                                                                                                                       |
 | `"upset"`            | List of SQL statements to be executed at a spec completion.                                                                                                                                                    |
 | `"force"`            | Load data from files unconditionally.                                                                                                                                                                          |
-| **`"file"`**         | **MANDATORY** name of the input file(s) to load. The file name extension determines the input data format. Use [glob-pattern](https://docs.python.org/3/library/glob.html) to set names for a series of files. |
+| **`"file"`**         | **MANDATORY** name of the input file(s), where extension determines the data format. Use [glob-pattern](https://docs.python.org/3/library/glob.html) to set names for a series of files.  Might be overridden in command line.|
 | **`"args"`**         | List of default values for the arguments to be loaded into table `ida`.                                                                                                                                        |
+| `"rows_per_load"`     | Количество (`int`) файлов серии, помещаемых в одну загрузку (`iload`): 0 - все файлы серии, -1 - каждый файл в отдельную загрузку.|
 | `"encoding"`         | Input file encoding. At spec level this parameter overrides config file parameter `ENCODING`.                                                                                                                  |
 | `"csv_dialect"`      | CSV dialect as defined in Python module `csv`. At spec level this parameter overrides config file parameter `CSV_DIALECT`.                                                                                     |
 | `"csv_delimiter"`    | CSV fields delimiter. At spec level this parameter overrides config file parameter `CSV_DELIMITER`.                                                                                                            |
 | `"skip_lines"`       | Number of lines (`int`) to skip at the beginning of input files.                                                                                                                                               |
 | **`"insert_data"`**  | List of Python functions to transform a line from input file (passed as a single`str` or as a `list` of fields) to a list of values for columns of a database table.                                           |
-| `"pass_lines"`       | Pass lines from input files to Python functions specified in `"insert_data"` as plain strings (`str`)?                                                                                                         |
+| `"text_lines"`       | Pass lines from input files to Python functions specified in `"insert_data"` as plain strings (`str`)?                                                                                                         |
 | `"insert_actions"`   | List of SQL statements or stored procedures calls that insert data into one or more database table(s).                                                                                                         |
 | `"validate_actions"` | List of SQL statements or stored procedures calls that check data loaded into intermediate database table(s) for correctness.                                                                                  |
 | `"process_actions"`  | List of SQL statements or stored procedures calls that moves or copies loaded data from intermediate table(s) to target table(s).                                                                               |

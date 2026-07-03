@@ -15,10 +15,10 @@ from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 
 import smtplib
-from jinja2 import Environment, FileSystemLoader, select_autoescape
+from jinja2 import Environment, FileSystemLoader, select_autoescape, Template
 
 
-VERSION = '0.3'
+VERSION = '0.4.0'
 
 #NOW_TS = datetime.timestamp(datetime.now())
 
@@ -44,17 +44,6 @@ if not os.path.isfile(args.cfg_file) and not os.path.isfile(args.cfg_file + '.py
     )
     sys.exit(1)
 
-TEMPLATES_DIR = os.path.join(BASEDIR, 'conf')
-if not os.path.isdir(TEMPLATES_DIR):
-    TEMPLATES_DIR = os.path.join(BASEDIR, '..', 'conf')
-    if not os.path.isdir(TEMPLATES_DIR):
-        sys.stderr.write(
-            parser.format_usage() + \
-            f"{BASENAME}: error: templates dir not found: {TEMPLATES_DIR}\n"
-        )
-        sys.exit(1)
-
-#USER_DIR = os.environ.get('HOMEPATH', os.environ.get('HOME', ''))
 USER_DIR = os.path.expanduser('~')
 if not os.path.isdir(USER_DIR):
     sys.stderr.write(
@@ -72,6 +61,8 @@ CFG_MODULE = os.path.basename(args.cfg_file).rsplit('.', 1)[0]
 sys.path.append(CFG_DIR)
 cfg = __import__(CFG_MODULE)
 specs = cfg.specs
+
+TEMPLATES_DIR = CFG_DIR
 
 SPEC = args.spec
 # filter out specs commented out with leading --
@@ -93,23 +84,30 @@ if LOGGING and not os.path.isdir(LOG_DIR):
     )
     sys.exit(1)
 LOG_FILE = os.path.join(LOG_DIR, f"{date.today().isoformat()}_{BASENAME.rsplit('.', 1)[0]}.log")
-logging.basicConfig(
-    filename=LOG_FILE,
-    #encoding='utf-8', # encoding needs Python >=3.9
-    format="%(asctime)s:%(levelname)s:%(process)s:%(message)s",
-    level=logging.DEBUG if DEBUGGING else logging.INFO if LOGGING else logging.CRITICAL + 1
-)
+if sys.version_info >= (3, 9):
+    logging.basicConfig(
+        filename=LOG_FILE,
+        encoding='utf-8',
+        format="%(asctime)s:%(levelname)s:%(process)s:%(message)s",
+        level=logging.DEBUG if DEBUGGING else logging.INFO if LOGGING else logging.CRITICAL + 1
+    )
+else:
+    logging.basicConfig(
+        filename=LOG_FILE,
+        format="%(asctime)s:%(levelname)s:%(process)s:%(message)s",
+        level=logging.DEBUG if DEBUGGING else logging.INFO if LOGGING else logging.CRITICAL + 1
+    )
 logger = logging.getLogger(BASENAME.rsplit('.', 1)[0])
 
 # output file encoding by default
 ENCODING = getattr(cfg, 'ENCODING', locale.getpreferredencoding())
 # datetime format for strftime is ISO 86101 by default
-DATETIME_FORMAT = getattr(cfg, 'DATETIME_FORMAT', '%Y-%m-%d %H:%M:%S%z')
-DATE_FORMAT = getattr(cfg, 'DATE_FORMAT', '%Y-%m-%d')
+#DATETIME_FORMAT = getattr(cfg, 'DATETIME_FORMAT', '%Y-%m-%d %H:%M:%S%z')
+#DATE_FORMAT = getattr(cfg, 'DATE_FORMAT', '%Y-%m-%d')
 
 STAT_FILE = os.path.join(TEMP_DIR, f".{CFG_MODULE}.json")
 # max number of files per message, both inline and attached
-FILES_PER_MESSAGE = 10
+FILES_PER_MESSAGE = 1000
 
 HTML_GREETING = \
     getattr(cfg, 'HTML_GREETING', """
@@ -124,6 +122,31 @@ dbang Utilities<br/>
 </p>
 """
     )
+HTML_TEMPLATE = \
+    getattr(cfg, 'HTML_TEMPLATE', """
+<!DOCTYPE html>
+<html>
+<head>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="content-type" content="text/html; charset=UTF-8">
+    <style type="text/css">
+        th {{"{"}}background:lightblue; padding: 5px;{{"}"}}
+        td {{"{"}}background:#e2e2e2; padding: 5px; text-align: left;{{"}"}}
+        pre {{"{"}}background:#e2e2e2; padding: 5px;{{"}"}}
+    </style>
+</head>
+<body>
+{%- if greeting %}{{greeting}}{% endif %}
+{%- for name, part in zip(names, parts) %}
+{%- if name %}<p style="font-weight:bold;color:grey;">{{name}}</p>{% endif %}
+{{part}}
+{%- endfor %}
+{%- if signature %}{{signature}}{% endif %}
+</body>
+</html>
+"""
+    )
+
 TEXT_GREETING = \
     getattr(cfg, 'TEXT_GREETING', """
 Hello!
@@ -137,11 +160,27 @@ Have a good day!
 dbang Utilities
 """
     )
+TEXT_TEMPLATE = \
+    getattr(cfg, 'TEXT_TEMPLATE', """
+{%- if greeting %}{{greeting}}{% endif %}
+{%- for name, part in zip(names, parts) %}
+{%- if name %}
+{{name}}
+
+{%- endif %}
+{{part}}
+{%- endfor %}
+{%- if signature %}{{signature}}{% endif %}
+"""
+    )
 
 env = Environment(
     loader=FileSystemLoader([TEMPLATES_DIR, CFG_DIR]),
     autoescape=select_autoescape(['html', 'xml'])
 )
+
+html_tpl = Template(HTML_TEMPLATE)
+text_tpl = Template(TEXT_TEMPLATE)
 
 
 def send_mail(config, mail, body, mail_format, attachments):
@@ -168,11 +207,18 @@ def send_mail(config, mail, body, mail_format, attachments):
         )
         message.attach(part)
 
-    try:
-        server = smtplib.SMTP(config.MAIL_SERVER)
-        server.sendmail(config.MAIL_FROM, mail['to'] + mail.get('cc', []) + mail.get('bcc', []), message.as_string())
-    finally:
-        server.quit()
+    with smtplib.SMTP(config.MAIL_SERVER, getattr(config, 'MAIL_PORT', 0)) as server:
+        if getattr(config, 'MAIL_USER', False) and getattr(config, 'MAIL_PASSWORD', False):
+            #server.ehlo()
+            if getattr(config, 'MAIL_USE_TLS', False):
+                server.starttls()
+                #server.ehlo()
+            server.login(config.MAIL_USER, config.MAIL_PASSWORD)
+        server.sendmail(
+            config.MAIL_FROM,
+            mail['to'] + mail.get('cc', []) + mail.get('bcc', []),
+            message.as_string()
+        )
 
 
 def process(spec_name, spec, stat):
@@ -234,7 +280,7 @@ def process(spec_name, spec, stat):
         else:
             target_files = recent_files[:FILES_PER_MESSAGE]
 
-        logger.debug(f"{text_body = } {force_send = } {target_files = }")
+        #logger.debug(f"{text_body = } {force_send = } {target_files = }")
         if not (force_send and text_body) and not target_files:
             logger.info("%s - No files to send", spec_name)
             return return_code
@@ -245,7 +291,7 @@ def process(spec_name, spec, stat):
             if isinstance(part, dict) and part.get('file'):
                 for file_name in sorted(glob.glob(part['file'])):
                     if file_name in target_files:
-                        with open(file_name, encoding=part.get('encoding', ENCODING)) as f:
+                        with open(file_name, encoding=part.get('encoding', ENCODING), errors='replace') as f:
                             content = f.read()
                         if part.get('tail', False):
                             content_size = len(content)
@@ -268,7 +314,11 @@ def process(spec_name, spec, stat):
                 parts.append(part)
                 names.append(None)
 
-        template = env.get_template(spec.get('template') or f"hedwig.{mail_format}.jinja")
+        template = spec.get("template", None)
+        if template and os.path.isfile(os.path.join(TEMPLATES_DIR, template)):
+            template = env.get_template(template)
+        else:
+            template = html_tpl if mail_format == 'html' else text_tpl
         if mail_format == 'html':
             for i, part in enumerate(parts):
                 found = re.search(r'<body>(.+)</body>', part, flags=re.MULTILINE|re.DOTALL)

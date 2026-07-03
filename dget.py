@@ -10,18 +10,19 @@ import argparse
 import logging
 import decimal as dec
 from datetime import date, datetime, time
+import threading
 
 from openpyxl import Workbook, styles
 from openpyxl.cell import WriteOnlyCell
 from jinja2 import (
-    #Template,
+    Template,
     Environment,
     FileSystemLoader,
     select_autoescape
 )
 
 
-VERSION = '0.3'
+VERSION = '0.4.0'
 
 parser = argparse.ArgumentParser(
     description="Retrieve data from DB into file, as specified in cfg-file specs.",
@@ -50,16 +51,6 @@ if not os.path.isfile(args.cfg_file) and not os.path.isfile(args.cfg_file + '.py
     )
     sys.exit(1)
 
-TEMPLATES_DIR = os.path.join(BASEDIR, 'conf')
-if not os.path.isdir(TEMPLATES_DIR):
-    TEMPLATES_DIR = os.path.join(BASEDIR, '..', 'conf')
-    if not os.path.isdir(TEMPLATES_DIR):
-        sys.stderr.write(
-            parser.format_usage() + \
-            f"{BASENAME}: error: templates dir not found: {TEMPLATES_DIR}\n"
-        )
-        sys.exit(1)
-
 USER_DIR = os.path.expanduser('~')
 if not os.path.isdir(USER_DIR):
     sys.stderr.write(
@@ -79,6 +70,8 @@ cfg = __import__(CFG_MODULE)
 sources = cfg.sources
 specs = cfg.specs
 
+TEMPLATES_DIR = CFG_DIR
+
 SPEC = args.spec
 # filter out specs commented out with leading --
 specs = {k:v for k,v in specs.items() if not k.startswith('--')}
@@ -97,6 +90,8 @@ if not os.path.isdir(OUT_DIR):
     )
     sys.exit(1)
 
+PARALLEL_WORKERS = min(getattr(cfg, 'PARALLEL_WORKERS', 1), 8)
+
 DEBUGGING = getattr(cfg, 'DEBUGGING', False)
 LOGGING = getattr(cfg, 'LOGGING', DEBUGGING)
 LOG_DIR = getattr(cfg, 'LOG_DIR', CUR_DIR)
@@ -107,13 +102,20 @@ if LOGGING and not os.path.isdir(LOG_DIR):
     )
     sys.exit(1)
 LOG_FILE = os.path.join(LOG_DIR, f"{date.today().isoformat()}_{BASENAME.rsplit('.', 1)[0]}.log")
-logging.basicConfig(
-    filename=LOG_FILE,
-    #encoding='utf-8', # encoding needs Python >=3.9
-    format="%(asctime)s:%(levelname)s:%(process)s:%(message)s",
-    level=logging.DEBUG if DEBUGGING else logging.INFO if LOGGING else logging.CRITICAL + 1
-)
-logger = logging.getLogger(BASENAME.rsplit('.', 1)[0])
+if sys.version_info >= (3, 9):
+    logging.basicConfig(
+        filename=LOG_FILE,
+        encoding='utf-8',
+        format="%(asctime)s:%(levelname)s:%(process)s:" + ("%(thread)d:%(message)s" if PARALLEL_WORKERS > 1 else "%(message)s"),
+        level=logging.DEBUG if DEBUGGING else logging.INFO if LOGGING else logging.CRITICAL + 1
+    )
+else:
+    logging.basicConfig(
+        filename=LOG_FILE,
+        format="%(asctime)s:%(levelname)s:%(process)s:" + ("%(thread)d:%(message)s" if PARALLEL_WORKERS > 1 else "%(message)s"),
+        level=logging.DEBUG if DEBUGGING else logging.INFO if LOGGING else logging.CRITICAL + 1
+    )
+logger = logging.getLogger(__name__)
 
 # output file encoding by default
 ENCODING = getattr(cfg, 'ENCODING', locale.getpreferredencoding())
@@ -122,7 +124,7 @@ DATETIME_FORMAT = getattr(cfg, 'DATETIME_FORMAT', '%Y-%m-%d %H:%M:%S%z')
 DATE_FORMAT = getattr(cfg, 'DATE_FORMAT', '%Y-%m-%d')
 
 CSV_DIALECT = getattr(cfg, 'CSV_DIALECT', 'excel')
-CSV_DELIMITER = getattr(cfg, 'CSV_DELIMITER', csv.get_dialect(CSV_DIALECT).delimiter)
+CSV_DELIMITER = getattr(cfg, 'CSV_DELIMITER', None) or csv.get_dialect(CSV_DIALECT).delimiter
 
 # number of rows to fetch with one fetch
 ONE_FETCH_ROWS = 5000
@@ -133,6 +135,41 @@ env = Environment(
     loader=FileSystemLoader([TEMPLATES_DIR, CFG_DIR]),
     autoescape=select_autoescape(['html', 'xml'])
 )
+
+JSON_TEMPLATE="""[
+{%- for row in rows %}
+{{"{"}}{% for k, v in zip(titles, row) %}"{{k}}": {% if v is not none %}{{v|tojson}}{% else %}null{% endif %}{% if not loop.last %}, {% endif %}{% endfor %}{{"}"}}{% if not loop.last %},{% endif %}
+{%- endfor %}
+]
+"""
+HTML_TEMPLATE="""<!DOCTYPE html>
+<html>
+<head>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="content-type" content="text/html; charset=UTF-8">
+    <style type="text/css">
+        th {{"{"}}background:lightblue; padding: 8px;{{"}"}}
+        td {{"{"}}background:#e2e2e2; padding: 8px; text-align: left;{{"}"}}
+    </style>
+<title>{{title}}</title>
+</head>
+<body>
+<h2>{{title}}</h2>
+<p>{{run[1]}}</p>
+<table>
+{%- if titles %}
+<tr>{% for t in titles %}<th>{{t}}</th>{% endfor %}</tr>
+{%- endif %}
+{%- for row in rows %}
+<tr>{% for d in row %}<td{{' style="text-align:right;"' if d is number else ''}}>{% if d is none %}{% elif d is number %}{{d|replace('.', dec_sep)}}{% else %}{{d}}{% endif %}</td>{% endfor %}</tr>
+{%- endfor %}
+</table>
+</body>
+</html>
+"""
+
+json_tpl = Template(JSON_TEMPLATE)
+html_tpl = Template(HTML_TEMPLATE)
 
 
 def exec_sql(con, sql):
@@ -154,34 +191,13 @@ def exec_sql(con, sql):
         cur.close()
 
 
-def connection(src):
-    """"
-    Get database connection by name src.
-    """
-    if isinstance(src, str):
-        source = sources[src]
-    elif isinstance(src, dict):
-        source = src
-    if not source.get('con'):
-        if source.get('con_string'):
-            source['con'] = \
-                source['lib'].connect(source['con_string'], **source.get('con_kwargs', dict()))
-        else:
-            source['con'] = \
-                source['lib'].connect(**source['con_kwargs'])
-        if source.get('setup'):
-            logger.debug('-- setup')
-            exec_sql(source['con'], source.get('setup'))
-    return source['con']
-
-
 def csv_row(row, dec_sep='.'):
     return tuple(
         '' if f == None else \
         f.strftime(DATETIME_FORMAT) if isinstance(f, datetime) else \
         f.strftime(DATE_FORMAT) if isinstance(f, date) else \
-        f if not isinstance(f, (float, dec.Decimal)) else \
-        str(f).replace('.', dec_sep) \
+        str(f).replace('.', dec_sep) if isinstance(f, (float, complex, dec.Decimal)) else \
+        str(f) \
         for f in row
         )
 
@@ -241,8 +257,8 @@ def file_stem(stem, parts, seqn, user):
     return stem % filename_dict
 
 
-def finalize_file(filename, file_format, compress=False):
-    _filename = filename.rstrip('out') + file_format
+def finalize_file(filename, compress=False):
+    _filename = filename[:-4]  # remove trailing '.out'
     if compress:
         import zipfile
         _zipfilename = _filename + '.zip'
@@ -284,12 +300,11 @@ def trace(ts, status):
     logger.debug("trace %s", this_trace + str(status))
 
 
-def process(run, spec_name, spec, out_file):
+def process_spec(con, run, spec_name, spec, out_file):
     """
     Process spec from config-file.
     """
     return_code = 0
-    con = None
     try:
         assert out_file or spec.get('file'), \
             f"Output file not specified, spec \"{spec_name}\""
@@ -300,10 +315,10 @@ def process(run, spec_name, spec, out_file):
         else:
             out_compress = False
         assert out_format in ('html', 'csv', 'xlsx', 'json') or (
-            isinstance(spec['template'], str) and
+            #isinstance(spec['template'], str) and
             spec['template'].endswith(".jinja") and
             os.path.isfile(os.path.join(CFG_DIR, spec['template']))
-            ), f"Bad format \"{in_format}\" or missing \"template\" in spec \"{spec_name}\""
+            ), f"Bad format \"{out_format}\" or missing \"template\" in spec \"{spec_name}\""
         assert sources.get(spec['source']), \
             f"Source \"{spec['source']}\" not defined, spec \"{spec_name}\""
         assert 'query' in spec.keys() and isinstance(spec['query'], str), \
@@ -314,9 +329,7 @@ def process(run, spec_name, spec, out_file):
             and len(args.arg) == len(spec['bind_args'])
             ), f"Command line args and \"bind_args\" do not match, spec {spec_name}"
 
-        logger.info("%s; DB = %s", spec_name, spec['source'])
-
-        con = connection(spec['source'])
+        logger.info(f"spec \"{spec_name}\"; source = \"{spec['source']}\"")
 
         # Initialize/Setup stuff related to this spec.
         if spec.get('setup'):
@@ -368,13 +381,17 @@ def process(run, spec_name, spec, out_file):
             #
             # create .json or .html file(s) using jinja2 template
             #
-            template = env.get_template(spec.get(f"{out_format}.template", f"dget.{out_format}.jinja"))
+            template = spec.get(f"{out_format}.template", None)
+            if template and os.path.isfile(os.path.join(TEMPLATES_DIR, template)):
+                template = env.get_template(template)
+            else:
+                template = json_tpl if out_format == 'json' else html_tpl
             while True:
                 first_row = cur.fetchone()
                 if not first_row:
                     break
                 else:
-                    out_file = file_stem(out_base, filename_parts, seqn, args.user) + '.out'
+                    out_file = file_stem(out_base, filename_parts, seqn, args.user) + f".{out_format}.out"
                     seqn += 1
                     out_file = os.path.join(out_path, out_file)
                     file = open(out_file, 'w', encoding=encoding, errors='replace')
@@ -382,7 +399,7 @@ def process(run, spec_name, spec, out_file):
                         template.render(
                             run=run,
                             title=spec.get(f"{out_format}.title", spec_name),
-                            titles=spec['header'],
+                            titles=spec['header'] if spec.get(f"csv.header", True) or out_format == 'json' else [],
                             source=spec['source'],
                             dec_sep=spec.get(f"{out_format}.dec_separator", '.'),
                             rows=rows_from_cursor(cur, first_row, rows_per_file),
@@ -390,13 +407,15 @@ def process(run, spec_name, spec, out_file):
                         )
                     )
                     file.close()
-                    finalize_file(out_file, out_format, out_compress)
+                    finalize_file(out_file, out_compress)
 
         elif out_format == 'csv':
             #
             # create .csv file(s) line by line
             #
             dec_separator = spec.get('csv.dec_separator', '.')
+            csv_dialect = spec.get('csv.dialect', CSV_DIALECT)
+            csv_delimiter = spec.get('csv.delimiter', CSV_DELIMITER)
             while True:
                 rows = cur.fetchmany(ONE_FETCH_ROWS)
                 if not rows:
@@ -404,31 +423,41 @@ def process(run, spec_name, spec, out_file):
                 for row in rows:
                     # begin file
                     if file is None:
-                        out_file = file_stem(out_base, filename_parts, seqn, args.user) + '.out'
+                        out_file = file_stem(out_base, filename_parts, seqn, args.user) + f".{out_format}.out"
                         seqn += 1
                         out_file = os.path.join(out_path, out_file)
                         file = open(out_file, 'w', encoding=encoding, errors='replace')
-                        csv_writer = \
-                            csv.writer(
-                                file,
-                                dialect=spec.get('csv.dialect', CSV_DIALECT),
-                                delimiter=spec.get('csv.delimiter', CSV_DELIMITER),
-                                lineterminator='\n'
-                            )
-                        csv_writer.writerow(spec['header'])
+                        if csv_dialect == 'naive':
+                            pass
+                        else:
+                            csv_writer = \
+                                csv.writer(
+                                    file,
+                                    dialect=csv_dialect,
+                                    delimiter=csv_delimiter,
+                                    lineterminator='\n'
+                                )
+                        if spec.get('csv.header', True):
+                            if csv_dialect == 'naive':
+                                file.write(csv_delimiter.join(spec['header']) + '\n')
+                            else:
+                                csv_writer.writerow(spec['header'])
                     # next line
-                    csv_writer.writerow(csv_row(row, dec_separator))
+                    if csv_dialect == 'naive':
+                        file.write(csv_delimiter.join(csv_row(row, dec_separator)) + '\n')
+                    else:
+                        csv_writer.writerow(csv_row(row, dec_separator))
                     rowcount += 1
                     if rows_per_file and rowcount % rows_per_file == 0:
                         # end file
                         file.close()
                         file = None
-                        finalize_file(out_file, out_format, out_compress)
+                        finalize_file(out_file, out_compress)
             if file:
                 # end file
                 file.close()
                 file = None
-                finalize_file(out_file, out_format, out_compress)
+                finalize_file(out_file, out_compress)
             logger.info("Got %s rows.", rowcount)
 
         elif out_format == 'xlsx':
@@ -443,16 +472,17 @@ def process(run, spec_name, spec, out_file):
                 for row in rows:
                     # begin file
                     if wb is None:
-                        out_file = file_stem(out_base, filename_parts, seqn, args.user) + '.out'
+                        out_file = file_stem(out_base, filename_parts, seqn, args.user) + f".{out_format}.out"
                         seqn += 1
                         out_file = os.path.join(out_path, out_file)
                         wb = Workbook(write_only=True)
                         ws = wb.create_sheet()
                         font = styles.Font(bold=True)
-                        titles = [WriteOnlyCell(ws, value=title) for title in spec['header']]
-                        for title in titles:
-                            title.font = font
-                        ws.append(titles)
+                        if spec.get('xlsx.header', True):
+                            titles = [WriteOnlyCell(ws, value=title) for title in spec['header']]
+                            for title in titles:
+                                title.font = font
+                            ws.append(titles)
                     # next row
                     ws.append(xlsx_row(row))
                     rowcount += 1
@@ -461,13 +491,13 @@ def process(run, spec_name, spec, out_file):
                         wb.save(out_file)
                         wb.close()
                         wb = None
-                        finalize_file(out_file, out_format, out_compress)
+                        finalize_file(out_file, out_compress)
             if wb:
                 # end file
                 wb.save(out_file)
                 wb.close()
                 wb = None
-                finalize_file(out_file, out_format, out_compress)
+                finalize_file(out_file, out_compress)
             logger.info("Got %s rows.", rowcount)
 
         cur.close()
@@ -480,16 +510,65 @@ def process(run, spec_name, spec, out_file):
         con.commit()
     except:
         logger.exception('EXCEPT')
-        if con:
-            con.rollback()
+        con.rollback()
         return_code = 1
     return return_code
+
+
+class ReturnValueThread(threading.Thread):
+    """
+    Class where join() returns value returned by target function
+    """
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.result = 0
+
+    def run(self):
+        if self._target is not None:
+            self.result = self._target(*self._args, **self._kwargs)
+
+    def join(self, *args, **kwargs):
+        super().join(*args, **kwargs)
+        return self.result
+
+
+def worker(list_of_arg_tuples):
+    error_count = 0
+    connections = dict()
+
+    for arg_tuple in list_of_arg_tuples:
+        run, spec_name, spec, out_file = arg_tuple
+
+        # get worker connection for the spec
+        source_name = spec['source']
+        if not connections.get(source_name):
+            source = sources[source_name]
+            connections[source_name] = \
+                source['lib'].connect(source['con_string'], **source.get('con_kwargs', dict())) \
+                if source.get('con_string') else \
+                source['lib'].connect(**source['con_kwargs'])
+            if source.get('setup'):
+                logger.debug('-- setup')
+                exec_sql(connections[source_name], source['setup'])
+        con = connections[source_name]
+
+        # execute the spec
+        error_count += process_spec(con, run, spec_name, spec, out_file)
+
+    # shutdown all worker connections
+    for source_name, con in connections.items():
+        source = sources[source_name]
+        if source.get('upset'):
+            logger.debug('-- upset')
+            exec_sql(con, source['upset'])
+        con.close()
+
+    return error_count
 
 
 def main():
     logger.info("-- start %s", ' '.join(sys.argv))
 
-    error_count = 0
     _temp = datetime.now()
     _ts = _temp.strftime('%Y%m%d%H%M%S')
     run = [
@@ -498,46 +577,56 @@ def main():
         _temp.strftime('%Y-%m-%d_%H-%M-%S')
     ]
     trace(_ts, 0)
+    logger.info(f"run with {PARALLEL_WORKERS} thread(s)")
 
+    error_count = 0
+    todo = []
     for spec_name, spec in specs.items():
         if SPEC in (spec_name, 'all', *spec.get('tags', [])):
             spec['source'] = spec.get('source', getattr(cfg, 'SOURCE', None))
-            if spec['source'] is None:
-                logger.error('Skipping spec "%s" with no source', spec_name)
+            if spec['source'] not in sources:
+                logger.error('Skipping spec "%s" with unknown source', spec_name)
                 error_count += 1
                 continue
             src = sources[spec['source']]
             if src.get('lib') is None:
-                if src['database'] == 'oracle':
+                if src['database'] == 'mssql':
+                    import mssql_python
+                    src['lib'] = mssql_python
+                elif src['database'] == 'mysql':
+                    import mysql.connector
+                    src['lib'] = mysql.connector
+                elif src['database'] == 'oracle':
                     #import cx_Oracle
                     #src['lib'] = cx_Oracle
                     import oracledb
                     src['lib'] = oracledb
                     if src.get('oracledb_thick_mode'):
                         src['lib'].init_oracle_client()
-                elif src['database'] == 'postgres':
+                elif src['database'] == 'postgresql':
                     import psycopg
                     src['lib'] = psycopg
-                elif src['database'] == 'mysql':
-                    import mysql.connector
-                    src['lib'] = mysql.connector
                 elif src['database'] == 'sqlite':
                     import sqlite3
                     src['lib'] = sqlite3
                 else:
                     src['lib'] = None
-            error_count += process(run, spec_name, spec, args.out_file)
+            todo.append((run, spec_name, spec, args.out_file))
+            #error_count += process(run, spec_name, spec, args.out_file)
 
-    for src in sources.values():
-        if src.get('con') is not None:
-            if src.get('upset'):
-                logger.debug("-- upset")
-                exec_sql(src['con'], src.get('upset'))
-            src['con'].close()
-            src['con'] = None
+    # create and start worker threads
+    threads = []
+    for i in range(PARALLEL_WORKERS):
+        threads.append(ReturnValueThread(target=worker, args=(todo[i::PARALLEL_WORKERS],)))
+        threads[-1].start()
+    # wait for all worker threads to terminate
+    for thread in threads:
+        error_count += thread.join()
 
     trace(_ts, 1 if error_count == 0 else 2)
+    logger.debug(f"{datetime.now() - _temp}")
     logger.info("-- done %s", f" WITH {error_count} ERRORS" if error_count else '')
+
     sys.exit(error_count)
 
 

@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="content-type" content="text/html; charset=UTF-8">
+    <style type="text/css">
+        th {{"{"}}background:lightblue; padding: 8px;{{"}"}}
+        td {{"{"}}background:#e2e2e2; padding: 8; text-align: left;{{"}"}}
+    </style>
+<title>{{title}}</title>
+</head>
+<body>
+<h2>{{title}}</h2>
+<table>
+{%- if titles %}
+<tr>{% for t in titles %}<th>{{t}}</th>{% endfor %}</tr>
+{%- endif %}
+{%- for row in rows %}
+<tr>{% for d in row %}<td{{' style="text-align:right;"' if d is number else ''}}>{% if d is none %}{% elif d is number %}{{d|replace('.', dec_sep)}}{% else %}{{d}}{% endif %}</td>{% endfor %}</tr>
+{%- endfor %}
+</table>
+</body>
+</html>

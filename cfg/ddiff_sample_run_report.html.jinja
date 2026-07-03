@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="content-type" content="text/html; charset=UTF-8">
+    <style type="text/css">
+        table {border-collapse: collapse; border: 1px solid navy;}
+        th {padding: 5px; text-align: left; border: 1px solid navy; background:lightblue;}
+        td {padding: 5px; text-align: left; border: 1px solid navy;}
+    </style>
+<title>Data Discrepancies Report ({{cfg}})</title>
+</head>
+<body>
+<h2>Data Discrepancies Report ({{cfg}})</h2>
+{%- if rows %}
+{%- for row in rows %}
+{%- if loop.first %}
+<p>
+{{run[1]}}. 
+{% if succeeded > 0 %}<span style="color:green;">{{succeeded}} test{% if succeeded > 1 %}s{% endif%} succeeded. </span>{% endif %}
+{% if failed > 0 %}<span style="color:red;">{{failed}} test{% if failed > 1 %}s{% endif%} failed. </span>{% endif %}
+{% if not_run > 0 %}{{not_run}} test{% if not_run > 1 %}s{% endif%} failed to run.{% endif %}
+</p>
+<table style="min-width:35%;">
+<tr><th>Test</th><th>DB1</th><th>DB2</th><th>Result</th><th>Timing</th><th>Doc</th></tr>
+{%- endif %}
+<tr>
+    <td>{{row[0]|escape}}</td>
+    <td>{{row[3]|escape}}</td>
+    <td>{{row[4]|escape}}</td>
+    <td>{% if row[1] == 0 %}<span style="color:green;">Success.</span>{% elif row[1] == -1 %}Failed to run.{% else %}<a href="{{cfg}}_{{row[0]}}.html" style="color:red;">Found {{row[1]}} discrepancies.</a>{% endif %}{% if row[2] %}<br/>{% for warn in row[2] %}{{warn|escape}}{{"<br/>" if not loop.last}}{% endfor %}{% endif %}</td>
+    <td>{% if row[6] %}{{row[6]|escape}}{% endif %}</td>
+    <td>{% if row[5] %}{{row[5]|escape}}{% endif %}</td>
+</tr>
+{%- if loop.last %}
+</table>
+{%- endif %}
+{%- endfor %}
+{%- else %}
+<p>No tests.</p>
+{%- endif %}
+</body>
+</html>
