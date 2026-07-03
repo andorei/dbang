@@ -1,7 +1,7 @@
 __pycache__/
 venv/
 .venv/
-conf/sources.py
+cfg/sources.py
 log/*
 !log/README.md
 in/*
@@ -10,3 +10,4 @@ in/*
 out/*
 !out/README.md
 !out/test*.*
+test/sources.py
